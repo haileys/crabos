@@ -1,0 +1,8 @@
+/bochs.bxrc
+/env.sh
+/target
+/tmp
+
+**/*.rs.bk
+*.img
+*.swp
