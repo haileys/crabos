@@ -1,23 +1,13 @@
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;
 
+use crate::console::PortE9;
+
 enum PanicMethod {
     PortE9,
 }
 
 static METHOD: PanicMethod = PanicMethod::PortE9;
-
-struct PortE9;
-
-impl Write for PortE9 {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        for b in s.as_bytes() {
-            unsafe { asm!("outb %al, %dx" :: "{dx}"(0xe9), "{al}"(*b) :: "volatile"); }
-        }
-
-        Ok(())
-    }
-}
 
 fn panic_write(mut writer: impl Write, info: &PanicInfo) {
     let _ = write!(&mut writer, "\n");
