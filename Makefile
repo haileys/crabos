@@ -22,7 +22,7 @@ hdd.img: target/loader/stage0.bin $(KERNEL_BIN)
 	dd if=$(KERNEL_BIN) of=$@ bs=512 seek=1 conv=notrunc,sync
 
 $(KERNEL_BIN): $(KERNEL_ELF)
-	i386-elf-objcopy -O binary $(KERNEL_ELF) $(KERNEL_BIN)
+	i386-elf-objcopy -R .bss -R .stack -O binary $(KERNEL_ELF) $(KERNEL_BIN)
 
 .PHONY: $(KERNEL_ELF)
 $(KERNEL_ELF): target/i386-kernel/start.o kernel/linker.ld
