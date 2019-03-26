@@ -10,12 +10,14 @@ SECTIONS {
         *(.text)
     }
 
-    .data : {
-        *(.data)
-    }
-
     .rodata : {
         *(.rodata)
+    }
+
+    roend = .;
+
+    .data : {
+        *(.data)
     }
 
     bssbase = ALIGN(0x1000);

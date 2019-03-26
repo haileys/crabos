@@ -53,7 +53,11 @@ protected_mode:
     ; build pt k entry
     mov eax, esi
     sub eax, KERNEL_BASE - KERNEL_PHYS_BASE
-    or eax, PAGE_PRESENT | PAGE_WRITABLE
+    or eax, PAGE_PRESENT
+    cmp esi, roend
+    jb .no_write
+    or eax, PAGE_WRITABLE
+.no_write:
     stosd
     ; compare to end
     add esi, PAGE_SIZE
