@@ -12,3 +12,6 @@
 %define EARLY_MEMORY_MAP_LEN    0x00004ff0
 
 %define PAGE_TABLES             0xffc00000
+
+%define SEG_KCODE               0x08
+%define SEG_KDATA               0x10

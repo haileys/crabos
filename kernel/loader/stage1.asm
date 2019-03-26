@@ -41,7 +41,7 @@ start:
     mov cr0, eax
 
     ; far jump to load CS with 32 bit segment
-    jmp 0x08:protected_mode
+    jmp SEG_KCODE:protected_mode
 
 error_bios: ; pass msg in SI
 .loop:
@@ -73,7 +73,7 @@ error: ; pass msg in ESI
 use32
 protected_mode:
     ; load all the other segments with 32 bit data segments
-    mov eax, 0x10
+    mov eax, SEG_KDATA
     mov ds, eax
     mov es, eax
     mov fs, eax
