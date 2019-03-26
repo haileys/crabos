@@ -1,5 +1,9 @@
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;
+use core::panicking;
+use core::slice;
+use core::str;
+use core::iter::Iterator;
 
 use crate::console;
 use crate::critical;
@@ -33,4 +37,17 @@ fn panic(info: &PanicInfo) -> ! {
 
     unsafe { asm!("cli; hlt") };
     loop {}
+}
+
+#[export_name = "panic"]
+pub unsafe extern "C" fn c_panic(msg: *const u8) -> ! {
+    // find null terminator:
+    let msg_len = (0..).find(|idx| *msg.add(*idx) == 0)
+        .expect("panic msg must have null terminator");
+
+    let bytes = slice::from_raw_parts(msg, msg_len);
+
+    let msg = str::from_utf8_unchecked(bytes);
+
+    panicking::panic(&(msg, "(none)", 0, 0));
 }
