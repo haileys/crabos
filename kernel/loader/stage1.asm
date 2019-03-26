@@ -10,10 +10,12 @@ start:
     mov si, could_not_enable_a20
     jc error_bios
 
+    ; init memory map len
+    mov [EARLY_MEMORY_MAP_LEN], dword 0
+
     ; read memory map
-    mov di, memory_map
+    mov di, EARLY_MEMORY_MAP
     xor ebx, ebx
-    xor bp, bp
 .memory_map_loop:
     mov edx, 0x534d4150
     mov eax, 0xe820
@@ -23,11 +25,10 @@ start:
     test ebx, ebx
     jz .memory_map_done
     add di, 24
-    inc bp
-    cmp di, memory_map_end
+    inc dword [EARLY_MEMORY_MAP_LEN]
+    cmp di, EARLY_MEMORY_MAP_END
     jb .memory_map_loop
 .memory_map_done:
-    mov [memory_map_count], bp
 
     ; load protected mode GDT and a null IDT (we don't need interrupts)
     cli
@@ -117,11 +118,6 @@ gdt32:
     db 0xcf         ; flags/(limit 16:19). 4 KB granularity + 32 bit mode flags
     db 0x00         ; base 24:31
 .end:
-
-; memory map:
-memory_map_count dw 0
-memory_map      equ 0x4000
-memory_map_end  equ 0x4ff8
 
 ; must be at end of file
 stage2:

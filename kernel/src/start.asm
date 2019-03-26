@@ -4,8 +4,10 @@ use32
 
 extern base
 extern bssbase
+extern roend
 extern end
 extern main
+extern phys_init_regions
 
 global start
 
@@ -38,8 +40,17 @@ protected_mode:
     or eax, PAGE_PRESENT | PAGE_WRITABLE
     mov dword [EARLY_PHYS(early_pd)], eax
 
-    ; identity map first (currently executing) page of kernel in pt 0
-    mov dword [EARLY_PHYS(early_pt_0) + ((KERNEL_PHYS_BASE >> 12) * 4)], KERNEL_PHYS_BASE | PAGE_PRESENT | PAGE_WRITABLE
+    ; identity map first MiB of phys memory, except null page
+    mov esi, 0x1000
+.map_low:
+    mov eax, esi
+    or eax, PAGE_PRESENT | PAGE_WRITABLE
+    mov ebx, esi
+    shr ebx, 12
+    mov dword [EARLY_PHYS(early_pt_0) + ebx * 4], eax
+    add esi, PAGE_SIZE
+    cmp esi, 0x100000
+    jb .map_low
 
     ; setup pd entry for pt k
     mov eax, EARLY_PHYS(early_pt_k)
@@ -87,6 +98,19 @@ higher_half:
     mov esp, stackend
     xor ebp, ebp
 
+    ; init phys allocator
+    mov eax, [EARLY_MEMORY_MAP_LEN]
+    push eax
+    push EARLY_MEMORY_MAP
+    call phys_init_regions
+    add esp, 8
+
+    ; unmap low memory
+    xor eax, eax
+    mov edi, PAGE_TABLES
+    mov ecx, 1024
+    rep stosd
+
     jmp main
 
 section .bss
@@ -94,6 +118,9 @@ section .bss
     early_pd    resb PAGE_SIZE
     early_pt_0  resb PAGE_SIZE
     early_pt_k  resb PAGE_SIZE
+    memory_map  resb PAGE_SIZE
+    global temp_page
+    temp_page   resb PAGE_SIZE
 
 section .stack
     global stackguard

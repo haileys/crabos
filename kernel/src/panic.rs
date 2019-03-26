@@ -1,13 +1,8 @@
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;
 
-use crate::console::PortE9;
-
-enum PanicMethod {
-    PortE9,
-}
-
-static METHOD: PanicMethod = PanicMethod::PortE9;
+use crate::console;
+use crate::critical;
 
 fn panic_write(mut writer: impl Write, info: &PanicInfo) {
     let _ = write!(&mut writer, "\n");
@@ -32,9 +27,9 @@ fn panic_write(mut writer: impl Write, info: &PanicInfo) {
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    match METHOD {
-        PanicMethod::PortE9 => panic_write(PortE9, info)
-    }
+    let crit = critical::begin();
+    let mut con = console::get(&crit);
+    panic_write(&mut con, info);
 
     unsafe { asm!("cli; hlt") };
     loop {}
