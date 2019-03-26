@@ -20,7 +20,7 @@ extern "C" {
 }
 
 pub fn invlpg(virt: *const ()) {
-    unsafe { asm!("invlpg ($0)" :: "r"(virt) : "memory", "volatile"); }
+    unsafe { asm!("invlpg ($0)" :: "r"(virt) : "memory" : "volatile"); }
 }
 
 // the existence of a reference to CriticalLock proves we're in a critical
