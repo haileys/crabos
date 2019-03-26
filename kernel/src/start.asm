@@ -111,6 +111,10 @@ higher_half:
     mov ecx, 1024
     rep stosd
 
+    ; flush TLB
+    mov eax, cr3
+    mov cr3, eax
+
     jmp main
 
 section .bss
