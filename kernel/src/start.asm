@@ -111,11 +111,38 @@ higher_half:
     mov ecx, 1024
     rep stosd
 
+    ; reload GDT in high memory
+    lgdt [gdtr]
+
     ; flush TLB
     mov eax, cr3
     mov cr3, eax
 
     jmp main
+
+section .data
+gdtr:
+    dw (gdt.end - gdt) - 1 ; size
+    dd gdt                 ; offset
+
+gdt:
+    ; null entry
+    dq 0
+    ; code entry
+    dw 0xffff       ; limit 0:15
+    dw 0x0000       ; base 0:15
+    db 0x00         ; base 16:23
+    db 0b10011010   ; access byte - code
+    db 0xcf         ; flags/(limit 16:19). 4 KB granularity + 32 bit mode flags
+    db 0x00         ; base 24:31
+    ; data entry
+    dw 0xffff       ; limit 0:15
+    dw 0x0000       ; base 0:15
+    db 0x00         ; base 16:23
+    db 0b10010010   ; access byte - data
+    db 0xcf         ; flags/(limit 16:19). 4 KB granularity + 32 bit mode flags
+    db 0x00         ; base 24:31
+.end:
 
 section .bss
     align PAGE_SIZE
