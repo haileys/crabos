@@ -8,6 +8,7 @@ extern roend
 extern end
 extern main
 extern phys_init_regions
+extern isrs_init
 
 global start
 
@@ -117,6 +118,12 @@ higher_half:
     ; flush TLB
     mov eax, cr3
     mov cr3, eax
+
+    ; initialize interrupts
+    call isrs_init
+
+    ; enable interrupts
+    sti
 
     jmp main
 

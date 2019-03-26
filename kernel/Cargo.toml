@@ -5,3 +5,4 @@ authors = ["Hailey Somerville <hailey@hailey.lol>"]
 edition = "2018"
 
 [dependencies]
+x86 = "0.15"

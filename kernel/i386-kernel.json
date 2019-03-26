@@ -16,6 +16,6 @@
     "target-pointer-width": "32",
 
     "pre-link-args": {
-        "ld": ["-T", "kernel/linker.ld", "target/i386-kernel/start.o"]
+        "ld": ["-T", "kernel/linker.ld", "target/i386-kernel/start.o", "target/i386-kernel/isrs.o"]
     }
 }

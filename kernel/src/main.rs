@@ -6,6 +6,7 @@
 
 mod console;
 mod critical;
+mod interrupt;
 mod mem;
 mod panic;
 
@@ -15,7 +16,7 @@ pub extern "C" fn main() -> ! {
 
     println!("Allocating phys: {:?}", mem::phys::alloc());
 
-    // unsafe { asm!("xchgw %bx, %bx"); }
-
-    panic!("Goodbye");
+    loop {
+        unsafe { asm!("hlt"); }
+    }
 }

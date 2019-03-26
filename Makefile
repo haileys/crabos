@@ -25,7 +25,7 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 	i386-elf-objcopy -R .bss -R .stack -O binary $(KERNEL_ELF) $(KERNEL_BIN)
 
 .PHONY: $(KERNEL_ELF)
-$(KERNEL_ELF): target/i386-kernel/start.o kernel/linker.ld
+$(KERNEL_ELF): target/i386-kernel/start.o target/i386-kernel/isrs.o kernel/linker.ld
 	cargo xbuild --target=kernel/i386-kernel.json $(CARGO_FLAGS)
 
 target/loader/stage0.bin: kernel/loader/stage0.asm kernel/src/consts.asm $(KERNEL_BIN)
@@ -36,6 +36,6 @@ target/loader/stage1.bin: kernel/loader/stage1.asm kernel/src/consts.asm
 	mkdir -p target/loader
 	nasm -f bin -o $@ $<
 
-target/i386-kernel/start.o: kernel/src/start.asm kernel/src/consts.asm target/loader/stage1.bin
+target/i386-kernel/%.o: kernel/src/%.asm kernel/src/consts.asm target/loader/stage1.bin
 	mkdir -p target/i386-kernel
 	nasm -f elf -o $@ $<
