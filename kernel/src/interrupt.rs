@@ -108,6 +108,8 @@ impl TrapFrame {
 
 #[no_mangle]
 pub extern "C" fn interrupt(frame: &TrapFrame) {
+    crate::println!("{:#x?}", frame);
+
     match frame.interrupt() {
         Interrupt::Irq(irq) => {
             if irq == 0 {
@@ -115,6 +117,10 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
                 crate::print!(".")
             }
 
+            if irq == 1 {
+                // keyboard
+                unsafe { io::inb(0x60); }
+            }
 
             // acknowledge interupt:
             unsafe { io::outb(0x20, 0x20); }
