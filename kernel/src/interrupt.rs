@@ -63,7 +63,7 @@ interrupts! {
 
 #[repr(C)]
 #[derive(Debug)]
-pub struct TrapFrame {
+pub struct Registers {
     // general purpose registers (PUSHA)
     edi: u32,
     esi: u32,
@@ -76,15 +76,28 @@ pub struct TrapFrame {
     // segment registers
     es: u32,
     ds: u32,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct TrapFrame {
+    regs: Registers,
+
     // interrupt details
     interrupt_vector: u32,
     error_code: u32,
+
     // interrupt stack frame
     eip: u32,
     cs: u32,
     eflags: u32,
-    esp: u32,
-    ss: u32,
+
+    // ESP and SS are only pushed if this is a cross-privilege-level interrupt
+    // just comment them out for now and figure out a safe way to access this
+    // info if present later:
+    //
+    // esp: u32,
+    // ss: u32,
 }
 
 impl TrapFrame {
