@@ -115,10 +115,11 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
                 crate::print!(".")
             }
 
+
             // acknowledge interupt:
             unsafe { io::outb(0x20, 0x20); }
 
-            if irq >= IRQ_BASE + 0x08 {
+            if irq >= 0x08 {
                 // irq from pic 2
                 unsafe { io::outb(0xa0, 0x20); }
             }
