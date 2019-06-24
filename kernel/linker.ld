@@ -26,7 +26,7 @@ SECTIONS {
         *(.bss)
     }
 
-    .stack ALIGN(0x100) : {
+    .stack ALIGN(0x1000) : {
         *(.stack)
     }
 
