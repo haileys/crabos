@@ -1,15 +1,19 @@
-use crate::critical::Critical;
-use crate::mem::phys::Phys;
+use bitflags::bitflags;
+
+use crate::critical::{self, Critical};
+use crate::mem::phys::{self, Phys, MemoryExhausted};
 
 #[repr(transparent)]
 struct Entry(u32);
 
 pub const PAGE_SIZE: usize = 0x1000;
 
-enum PageFlag {
-    Present     = 0x001,
-    Write       = 0x002,
-    User        = 0x004,
+bitflags! {
+    pub struct PageFlags: u32 {
+        const PRESENT   = 0x001;
+        const WRITE     = 0x002;
+        const USER      = 0x004;
+    }
 }
 
 const PAGE_DIRECTORY: *mut Entry = 0xfffff000 as *mut Entry;
@@ -25,20 +29,72 @@ pub fn invlpg(virt: *const ()) {
 
 // the existence of a reference to CriticalLock proves we're in a critical
 // section:
-pub unsafe fn temp_map<T>(phys: Phys, _critical: &Critical) -> *mut T {
+pub unsafe fn temp_map<T>(phys: Phys, _critical: &Critical) -> Result<*mut T, MapError> {
     let virt = &mut temp_page as *mut u8 as *mut ();
-
-    let entry = PAGE_TABLES.add(virt as usize >> 12) as *mut Entry;
-    *entry = Entry(phys.0 | PageFlag::Present as u32 | PageFlag::Write as u32);
-    invlpg(virt);
-
-    virt as *mut T
+    map(phys, virt, PageFlags::PRESENT | PageFlags::WRITE)?;
+    Ok(virt as *mut T)
 }
 
 pub unsafe fn temp_unmap(_critical: &Critical) {
     let virt = &mut temp_page as *mut u8 as *mut ();
+    unmap(virt).expect("unmap");
+}
 
-    let entry = PAGE_TABLES.add(virt as usize >> 12) as *mut Entry;
-    *entry = Entry(0);
-    invlpg(virt);
+#[derive(Debug)]
+pub enum MapError {
+    AlreadyMapped,
+    CannotAllocatePageTable,
+}
+
+pub unsafe fn map(phys: Phys, virt: *const (), flags: PageFlags) -> Result<(), MapError> {
+    critical::section(|| {
+        let virt = virt as u32;
+
+        let pde = PAGE_DIRECTORY.add((virt >> 22) as usize);
+        let pte = PAGE_TABLES.add((virt >> 12) as usize);
+
+        if (*pde).0 == 0 {
+            // need to allocate new page table for entry:
+            let pt = phys::alloc().map_err(|_: MemoryExhausted|
+                MapError::CannotAllocatePageTable)?;
+
+            *pde = Entry(pt.0 | (PageFlags::PRESENT | PageFlags::WRITE).bits());
+            invlpg(pte as *const ());
+        }
+
+        if (*pte).0 != 0 {
+            return Err(MapError::AlreadyMapped);
+        }
+
+        *pte = Entry(phys.0 | flags.bits());
+        invlpg(virt as *const ());
+
+        Ok(())
+    })
+}
+
+#[derive(Debug)]
+pub enum UnmapError {
+    NotMapped,
+}
+
+pub unsafe fn unmap(virt: *const ()) -> Result<(), UnmapError> {
+    critical::section(|| {
+        let virt = virt as u32;
+
+        let pde = PAGE_DIRECTORY.add((virt >> 22) as usize);
+        let pte = PAGE_TABLES.add((virt >> 12) as usize);
+
+        if (*pde).0 == 0 {
+            return Err(UnmapError::NotMapped);
+        }
+
+        if (*pte).0 == 0 {
+            return Err(UnmapError::NotMapped);
+        }
+
+        *pte = Entry(0);
+
+        Ok(())
+    })
 }

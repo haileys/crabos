@@ -1,4 +1,4 @@
-use core::fmt::{self, Debug, Write};
+use core::fmt::{self, Debug};
 use core::ptr;
 use crate::critical;
 use crate::mem::page::{self, PAGE_SIZE};
@@ -99,7 +99,13 @@ pub fn alloc() -> Result<Phys, MemoryExhausted> {
     unsafe {
         match NEXT_FREE_PHYS.take() {
             Some(phys) => {
-                let mapped = page::temp_map::<Option<Phys>>(phys, &crit);
+                let mapped = page::temp_map::<Option<Phys>>(phys, &crit)
+                    // this should never fail:
+                    //   - a temporary mapping should not exist on entry to
+                    //     this function
+                    //   - the page directory entry for the temporary page
+                    //     should already exist
+                    .expect("page::temp_map");
 
                 // pull linked next free phys out:
                 NEXT_FREE_PHYS = (*mapped).take();
@@ -120,7 +126,8 @@ pub fn alloc() -> Result<Phys, MemoryExhausted> {
                     region.begin += PAGE_SIZE as u32;
                     region.size -= PAGE_SIZE as u32;
 
-                    let mapped = page::temp_map::<u8>(phys, &crit);
+                    let mapped = page::temp_map::<u8>(phys, &crit)
+                        .expect("page::temp_map");
                     ptr::write_bytes(mapped, 0, PAGE_SIZE);
                     page::temp_unmap(&crit);
 
@@ -137,7 +144,8 @@ pub fn free(phys: Phys) {
     let crit = critical::begin();
 
     unsafe {
-        let link = page::temp_map::<Option<Phys>>(phys, &crit);
+        let link = page::temp_map::<Option<Phys>>(phys, &crit)
+            .expect("page::temp_map");
         *link = NEXT_FREE_PHYS.take();
         page::temp_unmap(&crit);
 

@@ -14,6 +14,8 @@ mod panic;
 #[no_mangle]
 pub extern "C" fn main() -> ! {
     unsafe {
+        let critical = critical::begin();
+        mem::page::temp_unmap(&critical);
         device::pit::init();
     }
 
