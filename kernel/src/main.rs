@@ -6,12 +6,17 @@
 
 mod console;
 mod critical;
+mod device;
 mod interrupt;
 mod mem;
 mod panic;
 
 #[no_mangle]
 pub extern "C" fn main() -> ! {
+    unsafe {
+        device::pit::init();
+    }
+
     println!("Hello world!");
 
     println!("Allocating phys: {:?}", mem::phys::alloc());

@@ -108,7 +108,7 @@ impl TrapFrame {
 
 #[no_mangle]
 pub extern "C" fn interrupt(frame: &TrapFrame) {
-    crate::println!("{:#x?}", frame);
+    // crate::println!("{:#x?}", frame);
 
     match frame.interrupt() {
         Interrupt::Irq(irq) => {

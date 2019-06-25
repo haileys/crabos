@@ -18,6 +18,11 @@ pub fn begin() -> Critical {
     Critical(if_)
 }
 
+pub fn section<T>(f: impl FnOnce() -> T) -> T {
+    let _crit = begin();
+    f()
+}
+
 impl Drop for Critical {
     fn drop(&mut self) {
         if self.0 {
