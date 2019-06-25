@@ -2,15 +2,16 @@ use32
 
 %include "kernel/src/consts.asm"
 
-extern base
-extern bssbase
-extern roend
-extern end
+extern _base
+extern _bss
+extern _rodata_end
+extern _end
 extern main
 extern phys_init_regions
 extern isrs_init
 
 global start
+global panic_unwind_get_return_addr
 
 ; 16 bit start code:
 start:
@@ -25,9 +26,9 @@ use32
 protected_mode:
     ; zero bss pages
     xor eax, eax
-    mov edi, EARLY_PHYS(bssbase)
-    mov ecx, end
-    sub ecx, bssbase
+    mov edi, EARLY_PHYS(_bss)
+    mov ecx, _end
+    sub ecx, _bss
     shr ecx, 2 ; div 4
     rep stosd
 
@@ -60,20 +61,20 @@ protected_mode:
 
     ; map kernel in pt k
     mov edi, EARLY_PHYS(early_pt_k)
-    mov esi, base
+    mov esi, _base
 .map_kernel:
     ; build pt k entry
     mov eax, esi
     sub eax, KERNEL_BASE - KERNEL_PHYS_BASE
     or eax, PAGE_PRESENT
-    cmp esi, roend
+    cmp esi, _rodata_end
     jb .no_write
     or eax, PAGE_WRITABLE
 .no_write:
     stosd
     ; compare to end
     add esi, PAGE_SIZE
-    cmp esi, end
+    cmp esi, _end
     jb .map_kernel
 
     ; set cr3
@@ -138,6 +139,10 @@ higher_half:
 
     jmp main
 
+panic_unwind_get_return_addr:
+    mov eax, [esp]
+    ret
+
 section .data
 gdtr:
     dw (gdt.end - gdt) - 1 ; size
@@ -192,6 +197,6 @@ section .stack
     align PAGE_SIZE
     stackguard times PAGE_SIZE db 0
     global stack
-    stack times PAGE_SIZE db 0
+    stack times 4 * PAGE_SIZE db 0
     global stackend
-    stackend equ stack + PAGE_SIZE
+    stackend equ $

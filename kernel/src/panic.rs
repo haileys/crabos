@@ -1,3 +1,7 @@
+// pub mod dwarf;
+// pub mod eh;
+pub mod unwind;
+
 use core::fmt::{self, Write};
 use core::panic::PanicInfo;
 use core::panicking;
@@ -37,6 +41,16 @@ fn panic(info: &PanicInfo) -> ! {
 
     unsafe { asm!("cli; hlt") };
     loop {}
+}
+
+pub fn trace() {
+    use unwind::{Unwinder, DwarfUnwinder};
+    use fallible_iterator::FallibleIterator;
+
+    DwarfUnwinder::default().trace(|x| {
+        while let Some(frame) = x.next().expect("StackFrames::next") {
+        }
+    });
 }
 
 #[export_name = "panic"]

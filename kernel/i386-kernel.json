@@ -4,7 +4,7 @@
     "disable-redzone": true,
     "executables": true,
     "features": "-mmx,-sse,+soft-float",
-    "linker": "i386-elf-ld",
+    "linker": "kernel/script/link",
     "linker-flavor": "ld",
     "llvm-target": "i386-unknown-linux-gnu",
     "morestack": false,
@@ -14,6 +14,7 @@
     "target-c-int-width": "32",
     "target-endian": "little",
     "target-pointer-width": "32",
+    "requires-uwtable": true,
 
     "pre-link-args": {
         "ld": ["-T", "kernel/linker.ld", "target/i386-kernel/start.o", "target/i386-kernel/isrs.o"]
