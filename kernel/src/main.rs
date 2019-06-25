@@ -30,10 +30,7 @@ pub static DEFAULT_ALLOCATOR: WatermarkAllocator = unsafe {
 };
 
 pub fn bar() {
-    let crit = critical::begin();
-    let mut console = console::get(&crit);
     panic::trace();
-    // panic::eh::trace(&mut console);
 }
 
 pub fn foo() {

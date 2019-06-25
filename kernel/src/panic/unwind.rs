@@ -4,10 +4,10 @@
 use crate::println;
 
 use core::slice;
-use core::fmt::{Debug, Formatter, Result as FmtResult};
+use core::fmt::{Debug, Formatter, Result as FmtResult, Write, self};
 use core::ops::{Index, IndexMut};
 
-use gimli::{UnwindSection, UnwindTable, UnwindTableRow, EhFrame, BaseAddresses, UninitializedUnwindContext, Pointer, Reader, EndianSlice, NativeEndian, CfaRule, RegisterRule, EhFrameHdr, ParsedEhFrameHdr, X86};
+use gimli::{UnwindSection, UnwindTable, UnwindTableRow, EhFrame, BaseAddresses, UninitializedUnwindContext, Pointer, Reader, EndianSlice, NativeEndian, CfaRule, RegisterRule, EhFrameHdr, ParsedEhFrameHdr, X86, FrameDescriptionEntry, CieOrFde};
 use fallible_iterator::FallibleIterator;
 
 pub struct StackFrames<'a> {
@@ -18,20 +18,10 @@ pub struct StackFrames<'a> {
 
 #[derive(Debug)]
 pub struct StackFrame {
-    personality: Option<u32>,
-    lsda: Option<u32>,
     initial_address: u32,
 }
 
 impl StackFrame {
-    pub fn personality(&self) -> Option<u32> {
-        self.personality
-    }
-
-    pub fn lsda(&self) -> Option<u32> {
-        self.lsda
-    }
-
     pub fn initial_address(&self) -> u32 {
         self.initial_address
     }
@@ -45,7 +35,6 @@ type StaticReader = EndianSlice<'static, NativeEndian>;
 
 struct ObjectRecord {
     er: EhRef,
-    eh_frame_hdr: ParsedEhFrameHdr<StaticReader>,
     eh_frame: EhFrame<StaticReader>,
     bases: BaseAddresses,
 }
@@ -55,6 +44,11 @@ pub struct DwarfUnwinder {
     ctx: UninitializedUnwindContext<StaticReader>,
 }
 
+unsafe fn section<'a>(start: &'a u8, end: &'a u8) -> &'a [u8] {
+    let len = (end as *const u8).offset_from(start as *const u8) as usize;
+    slice::from_raw_parts(start, len)
+}
+
 impl Default for DwarfUnwinder {
     fn default() -> DwarfUnwinder {
         let er = find_cfi_section();
@@ -62,23 +56,16 @@ impl Default for DwarfUnwinder {
             unsafe {
                 // TODO: set_got()
                 let bases = BaseAddresses::default()
-                    .set_eh_frame_hdr(er.eh_frame_hdr.start as u64)
+                    // .set_eh_frame_hdr(er.eh_frame_hdr.start as u64)
                     .set_text(er.text.start as u64);
 
-                let eh_frame_hdr: &'static [u8] = slice::from_raw_parts(er.eh_frame_hdr.start as *const u8, er.eh_frame_hdr.len() as usize);
+                let eh_frame_data: &'static [u8] = section(&_eh_frame, &_eh_frame_end);
+                println!("eh_frame at {:p} len {:x}", eh_frame_data.as_ptr(), eh_frame_data.len());
+                let eh_frame = EhFrame::new(eh_frame_data, NativeEndian);
 
-                let eh_frame_hdr = EhFrameHdr::new(eh_frame_hdr, NativeEndian).parse(&bases, 8).unwrap();
+                let bases = bases.set_eh_frame(eh_frame_data.as_ptr() as u64);
 
-                let eh_frame_addr = deref_ptr(eh_frame_hdr.eh_frame_ptr());
-                let eh_frame_sz = er.eh_frame_end.saturating_sub(eh_frame_addr);
-
-                let eh_frame: &'static [u8] = slice::from_raw_parts(eh_frame_addr as *const u8, eh_frame_sz as usize);
-                println!("eh_frame at {:p} sz {:x}", eh_frame_addr as *const u8, eh_frame_sz);
-                let eh_frame = EhFrame::new(eh_frame, NativeEndian);
-
-                let bases = bases.set_eh_frame(eh_frame_addr as u64);
-
-                ObjectRecord { er, eh_frame_hdr, eh_frame, bases }
+                ObjectRecord { er, eh_frame, bases }
             };
 
         DwarfUnwinder {
@@ -100,9 +87,28 @@ impl Unwinder for DwarfUnwinder {
 
 struct UnwindInfo<R: Reader> {
     row: UnwindTableRow<R>,
-    personality: Option<Pointer>,
-    lsda: Option<Pointer>,
     initial_address: u32,
+}
+
+fn fde_for_address<R: Reader>(eh_frame: &EhFrame<R>, bases: &BaseAddresses, address: u32)
+    -> gimli::read::Result<FrameDescriptionEntry<R>>
+{
+        let mut entry_iter = eh_frame.entries(bases);
+
+        while let Some(entry) = entry_iter.next()? {
+            match entry {
+                CieOrFde::Cie(_) => {}
+                CieOrFde::Fde(partial_fde) => {
+                    let fde = partial_fde.parse(EhFrame::cie_from_offset)?;
+
+                    if fde.contains(address as u64) {
+                        return Ok(fde);
+                    }
+                }
+            }
+        }
+
+        return Err(gimli::read::Error::NoUnwindInfoForAddress);
 }
 
 impl ObjectRecord {
@@ -110,16 +116,19 @@ impl ObjectRecord {
         &self,
         ctx: &mut UninitializedUnwindContext<StaticReader>,
         address: u32,
-    ) -> gimli::Result<UnwindInfo<StaticReader>> {
+    ) -> gimli::read::Result<UnwindInfo<StaticReader>> {
         let &ObjectRecord {
-            ref eh_frame_hdr,
             ref eh_frame,
             ref bases,
             ..
         } = self;
 
-        let fde = eh_frame_hdr.table().unwrap()
-            .fde_for_address(eh_frame, bases, address as u64, EhFrame::cie_from_offset)?;
+        println!(" -- unwind_info_for_address");
+
+        let fde = fde_for_address(eh_frame, bases, address)?;
+
+        println!(" -- FDE = {:?}", fde);
+
         let mut result_row = None;
         {
             let mut table = UnwindTable::new(eh_frame, bases, ctx, &fde)?;
@@ -134,8 +143,6 @@ impl ObjectRecord {
         match result_row {
             Some(row) => Ok(UnwindInfo {
                 row,
-                personality: fde.personality(),
-                lsda: fde.lsda(),
                 initial_address: fde.initial_address() as u32,
             }),
             None => Err(gimli::Error::NoUnwindInfoForAddress)
@@ -176,11 +183,11 @@ impl<'a> FallibleIterator for StackFrames<'a> {
             let mut newregs = registers.clone();
             newregs[X86::RA] = None;
             for &(reg, ref rule) in row.registers() {
-                println!("rule {:?} {:?}", reg, rule);
+                println!(" -- rule {:?} {:?}", reg, rule);
                 assert!(reg != X86::ESP); // stack = cfa
                 newregs[reg] = match *rule {
                     RegisterRule::Undefined => unreachable!(), // registers[reg],
-                    RegisterRule::SameValue => Some(registers[reg].unwrap()), // not sure why this exists
+                    RegisterRule::SameValue => Some(registers[reg].expect("registers[reg]")), // not sure why this exists
                     RegisterRule::Register(r) => registers[r],
                     RegisterRule::Offset(n) => Some(unsafe { *((cfa.wrapping_add(n as u32)) as *const u32) }),
                     RegisterRule::ValOffset(n) => Some(cfa.wrapping_add(n as u32)),
@@ -192,13 +199,13 @@ impl<'a> FallibleIterator for StackFrames<'a> {
             newregs[7] = Some(cfa);
 
             *registers = newregs;
-            println!("registers:{:?}", registers);
+            println!(" -- registers:{:?}", registers);
         }
 
 
         if let Some(mut caller) = registers[X86::RA] {
             caller -= 1; // THIS IS NECESSARY
-            println!("caller is 0x{:x}", caller);
+            println!(" -- caller is 0x{:x}", caller);
 
             let rec = if self.unwinder.cfi.er.text.contains(caller) {
                 &self.unwinder.cfi
@@ -206,21 +213,25 @@ impl<'a> FallibleIterator for StackFrames<'a> {
                 return Err(gimli::Error::NoUnwindInfoForAddress);
             };
 
-            let UnwindInfo { row, personality, lsda, initial_address } = rec.unwind_info_for_address(&mut self.unwinder.ctx, caller)?;
+            let UnwindInfo { row, initial_address } = rec.unwind_info_for_address(&mut self.unwinder.ctx, caller)?;
 
-            println!("ok: {:?} (0x{:x} - 0x{:x})", row.cfa(), row.start_address(), row.end_address());
+            println!(" -- ok: {:?} (0x{:x} - 0x{:x})", row.cfa(), row.start_address(), row.end_address());
             let cfa = match *row.cfa() {
-                CfaRule::RegisterAndOffset { register, offset } =>
-                    registers[register].unwrap().wrapping_add(offset as u32),
+                CfaRule::RegisterAndOffset { register, offset } => {
+                    match registers[register] {
+                        Some(val) => val.wrapping_add(offset as u32),
+                        None => {
+                            panic!("no value for register: {:?}", X86::register_name(register));
+                        }
+                    }
+                }
                 _ => unimplemented!(),
             };
-            println!("cfa is 0x{:x}", cfa);
+            println!(" -- cfa is 0x{:x}", cfa);
 
             self.state = Some((row, cfa));
 
             Ok(Some(StackFrame {
-                personality: personality.map(|x| unsafe { deref_ptr(x) }),
-                lsda: lsda.map(|x| unsafe { deref_ptr(x) }),
                 initial_address,
             }))
         } else {
@@ -244,7 +255,13 @@ impl Registers {
             registers: Default::default(),
         };
 
-        regs[X86::RA] = Some(unsafe { panic_unwind_get_return_addr() });
+        let esp;
+
+        let ra = unsafe { panic_unwind_get_return_addr() };
+        unsafe { asm!("movl %esp, $0" : "=r"(esp)) };
+
+        regs[X86::RA] = Some(ra);
+        regs[X86::ESP] = Some(esp);
 
         regs
     }
@@ -293,7 +310,6 @@ impl IndexMut<gimli::Register> for Registers {
 #[derive(Debug)]
 pub struct EhRef {
     pub text: AddrRange,
-    pub eh_frame_hdr: AddrRange,
     pub eh_frame_end: u32,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -315,8 +331,6 @@ impl AddrRange {
 extern "C" {
     static _base: u8;
     static _text_end: u8;
-    static _eh_frame_hdr: u8;
-    static _eh_frame_hdr_end: u8;
     static _eh_frame: u8;
     static _eh_frame_end: u8;
 }
@@ -329,18 +343,25 @@ pub fn find_cfi_section() -> EhRef {
             start: &_base as *const _ as u32,
             end: &_text_end as *const _ as u32,
         };
-        let eh_frame_hdr = AddrRange {
-            start: &_eh_frame_hdr as *const _ as u32,
-            end: &_eh_frame_hdr_end as *const _ as u32,
-        };
         let eh_frame_end = &_eh_frame_end as *const _ as u32;
 
         EhRef {
             text,
-            eh_frame_hdr,
             eh_frame_end,
         }
     };
-    println!("CFI section: {:x?}", cfi);
+    println!(" -- CFI section: {:x?}", cfi);
     cfi
+}
+
+pub fn trace(w: &mut Write) -> Result<(), fmt::Error> {
+    use fallible_iterator::FallibleIterator;
+
+    DwarfUnwinder::default().trace(|x| {
+        while let Some(frame) = x.next().expect("StackFrames::next") {
+            println!("[{:x?}]", frame.initial_address);
+        }
+    });
+
+    Ok(())
 }

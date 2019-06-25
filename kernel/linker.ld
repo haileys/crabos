@@ -22,13 +22,6 @@ SECTIONS {
         *(.rodata.*)
     }
 
-    .eh_framehdr : ALIGN(0x1000) {
-        _eh_frame_hdr = .;
-        KEEP (*(.eh_framehdr))
-        KEEP (*(.eh_framehdr.*))
-        _eh_frame_hdr_end = .;
-    }
-
     _eh_frame : ALIGN(0x1000) {
         _eh_frame = .;
         KEEP (*(.eh_frame))

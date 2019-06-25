@@ -44,13 +44,9 @@ fn panic(info: &PanicInfo) -> ! {
 }
 
 pub fn trace() {
-    use unwind::{Unwinder, DwarfUnwinder};
-    use fallible_iterator::FallibleIterator;
-
-    DwarfUnwinder::default().trace(|x| {
-        while let Some(frame) = x.next().expect("StackFrames::next") {
-        }
-    });
+    let crit = critical::begin();
+    let mut console = console::get(&crit);
+    unwind::trace(&mut console).expect("unwind::trace");
 }
 
 #[export_name = "panic"]
