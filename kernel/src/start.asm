@@ -112,12 +112,23 @@ higher_half:
     mov ecx, 1024
     rep stosd
 
-    ; reload GDT in high memory
-    lgdt [gdtr]
-
     ; flush TLB
     mov eax, cr3
     mov cr3, eax
+
+    ; point tss base to tss
+    mov eax, tss
+    mov [gdt.tss_base_0_15], ax
+    shr eax, 16
+    mov [gdt.tss_base_16_23], al
+    mov [gdt.tss_base_24_31], ah
+
+    ; reload GDT in high memory
+    lgdt [gdtr]
+
+    ; load tss
+    mov ax, SEG_TSS
+    ltr ax
 
     ; initialize interrupts
     call isrs_init
@@ -149,7 +160,23 @@ gdt:
     db 0b10010010   ; access byte - data
     db 0xcf         ; flags/(limit 16:19). 4 KB granularity + 32 bit mode flags
     db 0x00         ; base 24:31
+    ; tss entry
+    dw TSS_SIZE     ; limit 0:15
+    .tss_base_0_15  dw 0
+    .tss_base_16_23 db 0
+    db 0x89         ; access byte - tss
+    db 0x40         ; flags/(limit 16:19)
+    .tss_base_24_31 db 0
 .end:
+
+global tss
+tss:
+    dd 0            ; link
+    dd stackend     ; esp0
+    dd SEG_KDATA    ; ss0
+    times (TSS_IOPB_OFFSET - (4 * 3)) db 0 ; skip unused fields
+    dw 0            ; reserved
+    dw TSS_SIZE     ; iopb offset
 
 section .bss
     align PAGE_SIZE

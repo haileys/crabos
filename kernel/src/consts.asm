@@ -15,3 +15,7 @@
 
 %define SEG_KCODE               0x08
 %define SEG_KDATA               0x10
+%define SEG_TSS                 0x18
+
+%define TSS_SIZE                0x68
+%define TSS_IOPB_OFFSET         0x64
