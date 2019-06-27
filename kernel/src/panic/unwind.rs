@@ -1,10 +1,7 @@
-#![cfg_attr(feature = "nightly", feature(unwind_attributes))]
-#![cfg_attr(feature = "asm", feature(asm, naked_functions))]
-
 use crate::println;
 
 use core::slice;
-use core::fmt::{Debug, Formatter, Result as FmtResult, Write};
+use core::fmt::Write;
 use core::ops::{Index, IndexMut};
 
 use gimli::{UnwindSection, UnwindTable, UnwindTableRow, EhFrame, BaseAddresses, UninitializedUnwindContext, Reader, EndianSlice, NativeEndian, CfaRule, RegisterRule, X86, FrameDescriptionEntry, CieOrFde};
@@ -205,21 +202,9 @@ impl<'a> FallibleIterator for StackFrames<'a> {
     }
 }
 
-#[derive(Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Registers {
     registers: [Option<u32>; 9],
-}
-
-impl Debug for Registers {
-    fn fmt(&self, fmt: &mut Formatter) -> FmtResult {
-        for reg in &self.registers {
-            match *reg {
-                None => write!(fmt, " XXX")?,
-                Some(x) => write!(fmt, " 0x{:x}", x)?,
-            }
-        }
-        Ok(())
-    }
 }
 
 impl Index<gimli::Register> for Registers {
