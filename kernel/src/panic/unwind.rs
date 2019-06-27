@@ -10,14 +10,14 @@ use core::ops::{Index, IndexMut};
 use gimli::{UnwindSection, UnwindTable, UnwindTableRow, EhFrame, BaseAddresses, UninitializedUnwindContext, Reader, EndianSlice, NativeEndian, CfaRule, RegisterRule, X86, FrameDescriptionEntry, CieOrFde};
 use fallible_iterator::FallibleIterator;
 
-pub struct StackFrames<'a> {
+struct StackFrames<'a> {
     unwinder: &'a mut DwarfUnwinder,
     registers: Registers,
     state: Option<(UnwindTableRow<StaticReader>, u32)>,
 }
 
 #[derive(Debug)]
-pub struct StackFrame {
+struct StackFrame {
     initial_address: u32,
     return_address: u32,
 }
@@ -30,7 +30,7 @@ struct ObjectRecord {
     bases: BaseAddresses,
 }
 
-pub struct DwarfUnwinder {
+struct DwarfUnwinder {
     cfi: ObjectRecord,
     ctx: UninitializedUnwindContext<StaticReader>,
 }
@@ -105,38 +105,21 @@ impl ObjectRecord {
         ctx: &mut UninitializedUnwindContext<StaticReader>,
         address: u32,
     ) -> Result<UnwindInfo<StaticReader>, UnwindError> {
-        let &ObjectRecord {
-            ref eh_frame,
-            ref bases,
-            ..
-        } = self;
+        let fde = fde_for_address(&self.eh_frame, &self.bases, address)?;
 
-        println!(" -- unwind_info_for_address");
+        let mut table = UnwindTable::new(&self.eh_frame, &self.bases, ctx, &fde)
+            .map_err(UnwindError::Gimli)?;
 
-        let fde = fde_for_address(eh_frame, bases, address)?;
-
-        println!(" -- FDE = {:x?}", fde);
-
-        let mut result_row = None;
-        {
-            let mut table = UnwindTable::new(eh_frame, bases, ctx, &fde)
-                .map_err(UnwindError::Gimli)?;
-
-            while let Some(row) = table.next_row().map_err(UnwindError::Gimli)? {
-                if row.contains(address as u64) {
-                    result_row = Some(row.clone());
-                    break;
-                }
+        while let Some(row) = table.next_row().map_err(UnwindError::Gimli)? {
+            if row.contains(address as u64) {
+                return Ok(UnwindInfo {
+                    row: row.clone(),
+                    initial_address: fde.initial_address() as u32,
+                });
             }
         }
 
-        match result_row {
-            Some(row) => Ok(UnwindInfo {
-                row,
-                initial_address: fde.initial_address() as u32,
-            }),
-            None => Err(UnwindError::NoInfoForAddress(address))
-        }
+        return Err(UnwindError::NoInfoForAddress(address));
     }
 }
 
@@ -254,12 +237,13 @@ impl IndexMut<gimli::Register> for Registers {
 }
 
 #[derive(Debug)]
-pub struct EhRef {
+struct EhRef {
     pub text: AddrRange,
     pub eh_frame_end: u32,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AddrRange {
+struct AddrRange {
     pub start: u32,
     pub end: u32,
 }
@@ -277,7 +261,7 @@ extern "C" {
     static _eh_frame_end: u8;
 }
 
-pub fn find_cfi_section() -> EhRef {
+fn find_cfi_section() -> EhRef {
     let cfi = unsafe {
         // Safety: None of those are actual accesses - we only get the address
         // of those values.
