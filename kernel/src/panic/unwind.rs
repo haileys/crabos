@@ -327,7 +327,8 @@ pub fn trace(w: &mut Write) {
         loop {
             match frames.next() {
                 Ok(Some(frame)) => {
-                    println!("[{:x?}]", frame.initial_address);
+                    write!(w, "[{:x?}]\n", frame.initial_address)
+                        .expect("write! in panic::unwind::trace");
                 }
                 Ok(None) => {
                     break
