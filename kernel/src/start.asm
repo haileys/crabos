@@ -137,6 +137,7 @@ higher_half:
     ; enable interrupts
     sti
 
+    push 0
     jmp main
 
 ; This function is a little tricky. For the unwinder to work we need to capture

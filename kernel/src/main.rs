@@ -37,8 +37,11 @@ pub fn foo() {
     bar();
 }
 
+// Important! main must not have a ! return type otherwise panic::unwind gets
+// confused. In start.asm we push 0 to the stack before jmping to main.
+//
 #[no_mangle]
-pub extern "C" fn main() -> ! {
+pub extern "C" fn main() {
     unsafe {
         let critical = critical::begin();
 
