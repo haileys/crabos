@@ -46,7 +46,7 @@ fn panic(info: &PanicInfo) -> ! {
 pub fn trace() {
     let crit = critical::begin();
     let mut console = console::get(&crit);
-    unwind::trace(&mut console).expect("unwind::trace");
+    unwind::trace(&mut console);
 }
 
 #[export_name = "panic"]
