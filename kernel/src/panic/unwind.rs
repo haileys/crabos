@@ -284,20 +284,20 @@ fn capture_state(mut f: impl FnMut(&CReg)) {
     }
 
     extern "C" fn bounce(data: *mut c_void, reg: *const CReg) {
-        let callback: *mut &mut FnMut(&CReg) = unsafe { mem::transmute(data) };
+        let callback: *mut &mut dyn FnMut(&CReg) = unsafe { mem::transmute(data) };
         let (callback, reg) = unsafe { (&mut *callback, &*reg) };
 
         callback(reg);
     }
 
-    let mut func_ref: &mut FnMut(&CReg) = &mut f;
-    let func_ptr: *mut &mut FnMut(&CReg) = &mut func_ref;
+    let mut func_ref: &mut dyn FnMut(&CReg) = &mut f;
+    let func_ptr: *mut &mut dyn FnMut(&CReg) = &mut func_ref;
     let ffi_data: *mut c_void = unsafe { mem::transmute(func_ptr) };
 
     unsafe { panic_unwind_capture_state(ffi_data, bounce) };
 }
 
-pub fn trace(w: &mut Write) {
+pub fn trace(w: &mut dyn Write) {
     capture_state(|creg| {
         println!("{:x?}", creg);
 
