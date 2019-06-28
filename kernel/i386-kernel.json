@@ -17,6 +17,6 @@
     "requires-uwtable": true,
 
     "pre-link-args": {
-        "ld": ["-T", "kernel/linker.ld", "target/i386-kernel/start.o", "target/i386-kernel/isrs.o"]
+        "ld": ["-T", "kernel/linker.ld", "target/i386-kernel/start.o", "target/i386-kernel/isrs.o", "target/i386-kernel/aux.o"]
     }
 }

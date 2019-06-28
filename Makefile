@@ -2,6 +2,7 @@ BUILD?=debug
 
 KERNEL_ELF=target/i386-kernel/$(BUILD)/kernel
 KERNEL_BIN=target/i386-kernel/$(BUILD)/kernel.bin
+KERNEL_OBJS=target/i386-kernel/start.o target/i386-kernel/isrs.o target/i386-kernel/aux.o
 ifeq ($(BUILD),release)
 CARGO_FLAGS=--release
 endif
@@ -25,7 +26,7 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 	i386-elf-objcopy -R .bss -R .stack -O binary $(KERNEL_ELF) $(KERNEL_BIN)
 
 .PHONY: $(KERNEL_ELF)
-$(KERNEL_ELF): target/i386-kernel/start.o target/i386-kernel/isrs.o kernel/linker.ld
+$(KERNEL_ELF):  kernel/linker.ld $(KERNEL_OBJS)
 	cargo xbuild --target=kernel/i386-kernel.json $(CARGO_FLAGS)
 
 target/loader/stage0.bin: kernel/loader/stage0.asm kernel/src/consts.asm $(KERNEL_BIN)
