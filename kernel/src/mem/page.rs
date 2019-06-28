@@ -23,20 +23,20 @@ extern "C" {
     static mut temp_page: u8;
 }
 
-pub fn invlpg(virt: *const ()) {
+pub fn invlpg(virt: *const u8) {
     unsafe { asm!("invlpg ($0)" :: "r"(virt) : "memory" : "volatile"); }
 }
 
 // the existence of a reference to CriticalLock proves we're in a critical
 // section:
 pub unsafe fn temp_map<T>(phys: Phys, _critical: &Critical) -> Result<*mut T, MapError> {
-    let virt = &mut temp_page as *mut u8 as *mut ();
+    let virt = &mut temp_page as *mut u8;
     map(phys, virt, PageFlags::PRESENT | PageFlags::WRITE)?;
     Ok(virt as *mut T)
 }
 
 pub unsafe fn temp_unmap(_critical: &Critical) {
-    let virt = &mut temp_page as *mut u8 as *mut ();
+    let virt = &mut temp_page as *mut u8;
     unmap(virt).expect("unmap");
 }
 
@@ -46,7 +46,7 @@ pub enum MapError {
     CannotAllocatePageTable,
 }
 
-pub unsafe fn map(phys: Phys, virt: *const (), flags: PageFlags) -> Result<(), MapError> {
+pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), MapError> {
     critical::section(|| {
         let virt = virt as u32;
 
@@ -59,7 +59,7 @@ pub unsafe fn map(phys: Phys, virt: *const (), flags: PageFlags) -> Result<(), M
                 MapError::CannotAllocatePageTable)?;
 
             *pde = Entry(pt.0 | (PageFlags::PRESENT | PageFlags::WRITE).bits());
-            invlpg(pte as *const ());
+            invlpg(pte as *const u8);
         }
 
         if (*pte).0 != 0 {
@@ -67,7 +67,7 @@ pub unsafe fn map(phys: Phys, virt: *const (), flags: PageFlags) -> Result<(), M
         }
 
         *pte = Entry(phys.0 | flags.bits());
-        invlpg(virt as *const ());
+        invlpg(virt as *const u8);
 
         Ok(())
     })
@@ -78,7 +78,7 @@ pub enum UnmapError {
     NotMapped,
 }
 
-pub unsafe fn unmap(virt: *const ()) -> Result<(), UnmapError> {
+pub unsafe fn unmap(virt: *const u8) -> Result<(), UnmapError> {
     critical::section(|| {
         let virt = virt as u32;
 

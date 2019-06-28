@@ -55,7 +55,7 @@ impl WatermarkAllocator {
             let phys = phys::alloc().map_err(|_| AllocError)?;
 
             unsafe {
-                page::map(phys, inner.map_end as *const (), PageFlags::PRESENT | PageFlags::WRITE)
+                page::map(phys, inner.map_end, PageFlags::PRESENT | PageFlags::WRITE)
                     .map_err(|_| AllocError)?;
 
                 inner.map_end = inner.map_end.add(page::PAGE_SIZE);
