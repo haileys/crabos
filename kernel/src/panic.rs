@@ -1,11 +1,12 @@
 pub mod unwind;
 
 use core::fmt::{self, Write};
+use core::iter::Iterator;
 use core::panic::PanicInfo;
 use core::panicking;
 use core::slice;
 use core::str;
-use core::iter::Iterator;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::console;
 use crate::critical;
@@ -29,22 +30,27 @@ fn panic_write(mut writer: impl Write, info: &PanicInfo) {
     }
 
     let _ = write!(&mut writer, "\n");
+
+    unwind::trace(&mut writer);
 }
+
+static PANICKING: AtomicBool = AtomicBool::new(false);
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     let crit = critical::begin();
     let mut con = console::get(&crit);
-    panic_write(&mut con, info);
+
+    let recursive_panic = PANICKING.swap(true, Ordering::SeqCst);
+
+    if recursive_panic {
+        let _ = write!(con, "\n\n*** PANIC while panicking, halt\n\n");
+    } else {
+        panic_write(&mut con, info);
+    }
 
     unsafe { asm!("cli; hlt") };
     loop {}
-}
-
-pub fn trace() {
-    let crit = critical::begin();
-    let mut console = console::get(&crit);
-    unwind::trace(&mut console);
 }
 
 #[export_name = "panic"]
