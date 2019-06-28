@@ -3,38 +3,54 @@ ENTRY(start)
 SECTIONS {
     . = 0xc0000000;
 
-    base = .;
+    _base = .;
 
-    .text : {
+    _text = .;
+
+    .text : ALIGN(0x1000) {
         target/i386-kernel/start.o(.text)
         *(.text)
+        *(.text.*)
     }
 
-    .rodata : {
+    _text_end = .;
+
+    _rodata = .;
+
+    .rodata : ALIGN(0x1000) {
         *(.rodata)
+        *(.rodata.*)
     }
 
-    roend = ALIGN(0x1000);
+    .eh_frame : ALIGN(0x1000) {
+        _eh_frame = .;
+        KEEP (*(.eh_frame))
+        KEEP (*(.eh_frame.*))
+        _eh_frame_end = .;
+    }
 
-    .data ALIGN(0x1000) : {
+    _rodata_end = .;
+
+    _data = .;
+
+    .data : ALIGN(0x1000) {
         *(.data)
+        *(.data.*)
     }
 
-    bssbase = ALIGN(0x1000);
+    _data_end = .;
 
-    .bss ALIGN(0x1000) : {
+    _bss = .;
+
+    .bss : ALIGN(0x1000) {
         *(.bss)
+        *(.bss.*)
     }
 
-    .stack ALIGN(0x1000) : {
+    .stack : ALIGN(0x1000) {
         *(.stack)
+        *(.stack.*)
     }
 
-    end = ALIGN(0x1000);
-
-    /DISCARD/ :
-    {
-        *(.comment)
-        *(.eh_frame)
-    }
+    _end = .;
 }

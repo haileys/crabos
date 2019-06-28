@@ -2,15 +2,16 @@ use32
 
 %include "kernel/src/consts.asm"
 
-extern base
-extern bssbase
-extern roend
-extern end
+extern _base
+extern _bss
+extern _rodata_end
+extern _end
 extern main
 extern phys_init_regions
 extern isrs_init
 
 global start
+global panic_unwind_capture_state
 
 ; 16 bit start code:
 start:
@@ -25,9 +26,9 @@ use32
 protected_mode:
     ; zero bss pages
     xor eax, eax
-    mov edi, EARLY_PHYS(bssbase)
-    mov ecx, end
-    sub ecx, bssbase
+    mov edi, EARLY_PHYS(_bss)
+    mov ecx, _end
+    sub ecx, _bss
     shr ecx, 2 ; div 4
     rep stosd
 
@@ -60,20 +61,20 @@ protected_mode:
 
     ; map kernel in pt k
     mov edi, EARLY_PHYS(early_pt_k)
-    mov esi, base
+    mov esi, _base
 .map_kernel:
     ; build pt k entry
     mov eax, esi
     sub eax, KERNEL_BASE - KERNEL_PHYS_BASE
     or eax, PAGE_PRESENT
-    cmp esi, roend
+    cmp esi, _rodata_end
     jb .no_write
     or eax, PAGE_WRITABLE
 .no_write:
     stosd
     ; compare to end
     add esi, PAGE_SIZE
-    cmp esi, end
+    cmp esi, _end
     jb .map_kernel
 
     ; set cr3
@@ -136,7 +137,50 @@ higher_half:
     ; enable interrupts
     sti
 
+    push 0
     jmp main
+
+; This function is a little tricky. For the unwinder to work we need to capture
+; the state of the call stack as it exists. Returning ESP and RA would mess up
+; the top of the stack so instead we need to pass this data to a callback.
+;
+; The callback also needs an opaque data pointer so that we can access context
+; in this callback without passing the context through globals.
+;
+; extern "C" {
+;     fn panic_unwind_capture_state(
+;         data: *mut c_void,
+;         f: extern fn(data: *mut c_void, reg: *const CReg),
+;     );
+; }
+panic_unwind_capture_state:
+    ; set up frame pointer
+    push ebp
+    mov ebp, esp
+
+    ; load + push return address
+    mov eax, [ebp + 4]
+    push eax
+
+    ; load + push what stack pointer would have been
+    lea eax, [ebp + 8]
+    push eax
+
+    ; push pointer to CReg on stack
+    push esp
+
+    ; push cb arg
+    mov eax, [ebp + 8]
+    push eax
+
+    ; load func arg
+    mov eax, [ebp + 12]
+    call eax
+
+    ; tear down frame pointer and return
+    mov esp, ebp
+    pop ebp
+    ret
 
 section .data
 gdtr:
@@ -192,6 +236,6 @@ section .stack
     align PAGE_SIZE
     stackguard times PAGE_SIZE db 0
     global stack
-    stack times PAGE_SIZE db 0
+    stack times 8 * PAGE_SIZE db 0
     global stackend
-    stackend equ stack + PAGE_SIZE
+    stackend equ $
