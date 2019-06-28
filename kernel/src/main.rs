@@ -29,14 +29,6 @@ pub static DEFAULT_ALLOCATOR: WatermarkAllocator = unsafe {
     WatermarkAllocator::new(&_end as *const u8 as *mut u8)
 };
 
-pub fn bar() {
-    panic::trace();
-}
-
-pub fn foo() {
-    bar();
-}
-
 // Important! main must not have a ! return type otherwise panic::unwind gets
 // confused. In start.asm we push 0 to the stack before jmping to main.
 //
@@ -53,8 +45,6 @@ pub extern "C" fn main() {
     }
 
     println!("Hello world!");
-
-    foo();
 
     loop {
         // unsafe { asm!("hlt"); }
