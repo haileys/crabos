@@ -130,6 +130,16 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
                 unsafe { io::outb(0xa0, 0x20); }
             }
         }
+        Interrupt::PageFault => {
+            use crate::mem::fault::{fault, Flags};
+
+            let flags = Flags::from_bits(frame.error_code)
+                .expect("mem::fault::Flags::from_bits");
+
+            let address = unsafe { x86::controlregs::cr2() as *const u8 };
+
+            fault(frame, flags, address);
+        }
         Interrupt::Other(vector) => {
             panic!("unexpected interrupt: {:#2x}", vector);
         }
