@@ -16,6 +16,6 @@ extern {
     static _bss_end: u8;
 }
 
-pub fn fault(frame: &TrapFrame, flags: Flags, address: *const u8) {
+pub fn fault(_frame: &TrapFrame, flags: Flags, address: *const u8) {
     println!("Page fault!! flags: {:?}, address: {:?}", flags, address);
 }
