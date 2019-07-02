@@ -1,5 +1,3 @@
-pub mod unwind;
-
 use core::fmt::{self, Write};
 use core::iter::Iterator;
 use core::panic::PanicInfo;
@@ -30,8 +28,6 @@ fn panic_write(mut writer: impl Write, info: &PanicInfo) {
     }
 
     let _ = write!(&mut writer, "\n");
-
-    unwind::trace(&mut writer);
 }
 
 static PANICKING: AtomicBool = AtomicBool::new(false);
