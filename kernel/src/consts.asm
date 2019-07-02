@@ -19,3 +19,9 @@
 
 %define TSS_SIZE                0x68
 %define TSS_IOPB_OFFSET         0x64
+
+%define GDT64_DESCRIPTOR        (1 << 44)
+%define GDT64_PRESENT           (1 << 47)
+%define GDT64_READWRITE         (1 << 41)
+%define GDT64_EXECUTABLE        (1 << 43)
+%define GDT64_64BIT             (1 << 53)

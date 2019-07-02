@@ -8,7 +8,7 @@ SECTIONS {
     _text = .;
 
     .text : ALIGN(0x1000) {
-        target/i386-kernel/start.o(.text)
+        target/x86_64-kernel/start.o(.text)
         *(.text)
         *(.text.*)
     }

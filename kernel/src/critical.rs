@@ -2,11 +2,11 @@ use core::ops::Drop;
 
 pub struct Critical(bool);
 
-const FLAG_IF: u32 = 1 << 9;
+const FLAG_IF: u64 = 1 << 9;
 
-fn eflags() -> u32 {
+fn eflags() -> u64 {
     unsafe {
-        let eflags: u32;
+        let eflags: u64;
         asm!("pushf; pop $0" : "=r"(eflags));
         eflags
     }

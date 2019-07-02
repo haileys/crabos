@@ -74,8 +74,8 @@ pub struct Registers {
     ecx: u32,
     eax: u32,
     // segment registers
-    es: u32,
-    ds: u32,
+    // es: u32,
+    // ds: u32,
 }
 
 #[repr(C)]

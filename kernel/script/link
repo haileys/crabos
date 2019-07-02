@@ -1,2 +1,2 @@
 #!/bin/bash
-exec i386-elf-ld --print-map "$@" > target/link-map.txt
+exec x86_64-elf-ld --print-map "$@" > target/link-map.txt

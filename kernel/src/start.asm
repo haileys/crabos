@@ -117,11 +117,11 @@ higher_half:
     mov cr3, eax
 
     ; point tss base to tss
-    mov eax, tss
-    mov [gdt.tss_base_0_15], ax
-    shr eax, 16
-    mov [gdt.tss_base_16_23], al
-    mov [gdt.tss_base_24_31], ah
+    ; mov eax, tss
+    ; mov [gdt.tss_base_0_15], ax
+    ; shr eax, 16
+    ; mov [gdt.tss_base_16_23], al
+    ; mov [gdt.tss_base_24_31], ah
 
     ; reload GDT in high memory
     lgdt [gdtr]
@@ -148,26 +148,9 @@ gdt:
     ; null entry
     dq 0
     ; code entry
-    dw 0xffff       ; limit 0:15
-    dw 0x0000       ; base 0:15
-    db 0x00         ; base 16:23
-    db 0b10011010   ; access byte - code
-    db 0xcf         ; flags/(limit 16:19). 4 KB granularity + 32 bit mode flags
-    db 0x00         ; base 24:31
+    dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE | GDT64_EXECUTABLE | GDT64_64BIT
     ; data entry
-    dw 0xffff       ; limit 0:15
-    dw 0x0000       ; base 0:15
-    db 0x00         ; base 16:23
-    db 0b10010010   ; access byte - data
-    db 0xcf         ; flags/(limit 16:19). 4 KB granularity + 32 bit mode flags
-    db 0x00         ; base 24:31
-    ; tss entry
-    dw TSS_SIZE     ; limit 0:15
-    .tss_base_0_15  dw 0
-    .tss_base_16_23 db 0
-    db 0x89         ; access byte - tss
-    db 0x40         ; flags/(limit 16:19)
-    .tss_base_24_31 db 0
+    dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE
 .end:
 
 global tss
