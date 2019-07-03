@@ -39,15 +39,15 @@ isrs_init:
     ; DISPATCH_E(vector, name) - dispatch interrupt with error code
     %macro DISPATCH_E 2
         %2:
-            push dword %1
+            push qword %1
             jmp interrupt_common
     %endmacro
 
     ; DISPATCH_0(vector, name) - dispatch interrupt without error code
     %macro DISPATCH_0 2
         %2:
-            push dword 0
-            push dword %1
+            push qword 0
+            push qword %1
             jmp interrupt_common
     %endmacro
 
@@ -117,9 +117,9 @@ DISPATCH_0 0x2e, irq14
 ; DISPATCH_0 0x2f, irq15
 
 interrupt_common:
-    xchg bx, bx
-
     ; TODO - check SS and other seg regs
+    ; do we need to fix up ds/es if coming from ring 3?
+
     ; push ds
     ; push es
 
@@ -144,10 +144,8 @@ interrupt_common:
     ; mov ds, ax
     ; mov es, ax
 
-    ; TODO figure out rust C calling convention
-    ; push esp
-    ; call interrupt
-    ; add esp, 4
+    mov rdi, rsp
+    call interrupt
 
     ; pop general purpose registers
     pop r15
@@ -173,7 +171,7 @@ interrupt_common:
     add rsp, 16
 
     ; TODO figure out other return stuff
-    iret
+    iretq
 
 pic_init:
     ; save pic masks, PIC1 in BL and PIC2 in BH
