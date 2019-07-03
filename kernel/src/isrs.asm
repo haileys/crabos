@@ -24,16 +24,16 @@ isrs_init:
     ; ENTRY(vector, offset, segment, flags)
     %macro ENTRY 4
         mov rax, %2 ; offset
-        lea rbx, [rel idt]
-        mov [rbx + ((%1) * 8) + 0], ax      ; offset 0:15
-        mov [rbx + ((%1) * 8) + 2], word %3 ; segment
-        mov [rbx + ((%1) * 8) + 4], word %4 ; flags
+        lea rbx, [rel idt + ((%1) * 16)]
+        mov [rbx + 0], ax       ; offset 0:15
+        mov [rbx + 2], word %3  ; segment
+        mov [rbx + 4], word %4  ; flags
 
         shr rax, 16
-        mov [rbx + ((%1) * 8) + 6], ax      ; offset 16:31
+        mov [rbx + 6], ax       ; offset 16:31
 
         shr rax, 16
-        mov [rbx + ((%1) * 8) + 8], rax     ; offset 32:63, incl reserved 4 bytes
+        mov [rbx + 8], rax      ; offset 32:63, incl reserved 4 bytes
     %endmacro
 
     ; DISPATCH_E(vector, name) - dispatch interrupt with error code
@@ -117,6 +117,8 @@ DISPATCH_0 0x2e, irq14
 ; DISPATCH_0 0x2f, irq15
 
 interrupt_common:
+    xchg bx, bx
+
     ; TODO - check SS and other seg regs
     ; push ds
     ; push es
@@ -145,7 +147,6 @@ interrupt_common:
     ; TODO figure out rust C calling convention
     ; push esp
     ; call interrupt
-    xchg bx, bx
     ; add esp, 4
 
     ; pop general purpose registers
@@ -313,7 +314,7 @@ section .data
 align 4
 idtr:
     dw IDT_SIZE - 1
-    dd idt
+    dq idt
 
 section .bss
 idt resb IDT_SIZE
