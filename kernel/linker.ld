@@ -1,7 +1,7 @@
 ENTRY(start)
 
 SECTIONS {
-    . = 0xc0000000;
+    . = 0xffff800000000000;
 
     _base = .;
 

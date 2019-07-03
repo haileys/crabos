@@ -16,7 +16,7 @@ global start
 start:
     incbin "target/loader/stage1.bin"
 
-; the kernel is linked with base = 0xc0000000, but the early bootloader
+; the kernel is linked with base = 0xffff800000000000, but the early bootloader
 ; places us at 0x8000 without paging enabled. we need to be careful in this
 ; early phase to translate symbol addresses to physical addresses:
 %define EARLY_PHYS(addr) ((addr) - KERNEL_BASE + KERNEL_PHYS_BASE)
