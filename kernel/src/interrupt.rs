@@ -1,4 +1,5 @@
-use x86::io;
+use x86_64::instructions::port::Port;
+use x86_64::registers::control::Cr2;
 
 pub const IRQ_BASE: u8 = 0x20;
 
@@ -112,6 +113,9 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
 
     match frame.interrupt() {
         Interrupt::Irq(irq) => {
+            let mut pic1 = Port::<u8>::new(0x20);
+            let mut pic2 = Port::<u8>::new(0xa0);
+
             if irq == 0 {
                 // PIT
                 crate::print!(".")
@@ -119,15 +123,16 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
 
             if irq == 1 {
                 // keyboard
-                unsafe { io::inb(0x60); }
+                let mut keyboard = Port::<u8>::new(0x60);
+                unsafe { keyboard.read(); }
             }
 
             // acknowledge interupt:
-            unsafe { io::outb(0x20, 0x20); }
+            unsafe { pic1.write(0x20); }
 
             if irq >= 0x08 {
-                // irq from pic 2
-                unsafe { io::outb(0xa0, 0x20); }
+                // irq from pic 2, send separate ack
+                unsafe { pic2.write(0x20); }
             }
         }
         Interrupt::PageFault => {
@@ -136,7 +141,7 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
             let flags = Flags::from_bits(frame.error_code)
                 .expect("mem::fault::Flags::from_bits");
 
-            let address = unsafe { x86::controlregs::cr2() as *const u8 };
+            let address = Cr2::read().as_ptr();
 
             fault(frame, flags, address);
         }

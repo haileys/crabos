@@ -1,5 +1,5 @@
 use core::cmp;
-use x86::io;
+use x86_64::instructions::port::Port;
 
 use crate::critical;
 
@@ -9,15 +9,17 @@ unsafe fn set_frequency(hz: usize) {
     let divisor = cmp::min(PIT_FREQ / hz, 65535);
 
     critical::section(|| {
-        io::outb(0x40, ((divisor >> 0) & 0xff) as u8);
-        io::outb(0x40, ((divisor >> 8) & 0xff) as u8);
+        let mut port = Port::<u8>::new(0x40);
+        port.write(((divisor >> 0) & 0xff) as u8);
+        port.write(((divisor >> 8) & 0xff) as u8);
     });
 }
 
 pub unsafe fn init() {
     critical::section(|| {
         // initialize pit channel 0
-        io::outb(0x43, 0b00110100);
+        let mut port = Port::<u8>::new(0x43);
+        port.write(0b00110100);
 
         set_frequency(20);
     });
