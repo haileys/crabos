@@ -73,7 +73,8 @@ protected_mode:
     mov cr0, eax
 
     ; load 64 bit GDT
-    lgdt [EARLY_PHYS(gdtr)]
+    mov eax, EARLY_PHYS(gdtr)
+    lgdt [eax]
 
     ; reload code segment
     jmp 0x08:EARLY_PHYS(long_mode)
@@ -151,16 +152,21 @@ higher_half:
     mov rax, cr3
     mov cr3, rax
 
-    ; point tss base to tss
-    ; mov eax, tss
-    ; mov [gdt.tss_base_0_15], ax
-    ; shr eax, 16
-    ; mov [gdt.tss_base_16_23], al
-    ; mov [gdt.tss_base_24_31], ah
+    ; point tss gdt entry to tss
+    mov [rel gdt.tss_size_0_15], word tss.end - tss
+    mov rax, tss
+    mov [rel gdt.tss_base_0_15], ax
+    shr rax, 16
+    mov [rel gdt.tss_base_16_23], al
+    shr rax, 8
+    mov [rel gdt.tss_base_24_31], al
+    shr rax, 8
+    mov [rel gdt.tss_base_32_63], eax
 
     ; reload GDT in high memory
-    mov rax, EARLY_PHYS(gdtr)
-    lgdt [rax]
+    mov rax, qword gdt
+    mov [rel gdtr.offset], rax
+    lgdt [rel gdtr]
 
     ; load tss
     mov ax, SEG_TSS
@@ -177,8 +183,8 @@ higher_half:
 
 section .data
 gdtr:
-    dw (gdt.end - gdt) - 1 ; size
-    dd EARLY_PHYS(gdt)     ; offset
+    .size   dw (gdt.end - gdt) - 1 ; size
+    .offset dq EARLY_PHYS(gdt)     ; offset
 
 gdt:
     ; null entry
@@ -187,17 +193,35 @@ gdt:
     dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE | GDT64_EXECUTABLE | GDT64_64BIT
     ; data entry
     dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE
+    ; tss entry
+    .tss_size_0_15  dw 0
+    .tss_base_0_15  dw 0
+    .tss_base_16_23 db 0
+    .tss_access     db 0x89
+    .tss_flags_lim  db (1 << 4)
+    .tss_base_24_31 db 0
+    .tss_base_32_63 dd 0
+    .tss_reserved   dd 0
 .end:
 
-; TODO - 64 bit tss
-; global tss
-; tss:
-;     dd 0            ; link
-;     dd stackend     ; esp0
-;     dd SEG_KDATA    ; ss0
-;     times (TSS_IOPB_OFFSET - (4 * 3)) db 0 ; skip unused fields
-;     dw 0            ; reserved
-;     dw TSS_SIZE     ; iopb offset
+global tss
+tss:
+    dd 0                ; reserved
+    dq stackend         ; rsp0
+    dq 0                ; rsp1
+    dq 0                ; rsp2
+    dq 0                ; reserved
+    dq 0                ; ist1
+    dq 0                ; ist2
+    dq 0                ; ist3
+    dq 0                ; ist4
+    dq 0                ; ist5
+    dq 0                ; ist6
+    dq 0                ; ist7
+    dq 0                ; reserved
+    dw 0                ; reserved
+    dw (tss.end - tss)  ; iopb offset
+.end:
 
 section .bss
     align PAGE_SIZE
