@@ -4,7 +4,7 @@ use crate::println;
 use bitflags::bitflags;
 
 bitflags! {
-    pub struct Flags: u32 {
+    pub struct Flags: u64 {
         const PRESENT   = 0x001;
         const WRITE     = 0x002;
         const USER      = 0x004;

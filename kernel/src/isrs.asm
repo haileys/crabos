@@ -168,6 +168,7 @@ interrupt_common:
     ; TODO wtf with register
     ; pop es
     ; pop ds
+    ; pop interrupt vector and error code
     add rsp, 16
 
     ; TODO figure out other return stuff

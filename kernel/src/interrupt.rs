@@ -65,15 +65,22 @@ interrupts! {
 #[repr(C)]
 #[derive(Debug)]
 pub struct Registers {
-    // general purpose registers (PUSHA)
-    edi: u32,
-    esi: u32,
-    ebp: u32,
-    esp0: u32,
-    ebx: u32,
-    edx: u32,
-    ecx: u32,
-    eax: u32,
+    // general purpose registers, see isrs.asm
+    r15: u64,
+    r14: u64,
+    r13: u64,
+    r12: u64,
+    r11: u64,
+    r10: u64,
+    r9:  u64,
+    r8:  u64,
+    rdi: u64,
+    rsi: u64,
+    rbp: u64,
+    rbx: u64,
+    rdx: u64,
+    rcx: u64,
+    rax: u64,
     // segment registers
     // es: u32,
     // ds: u32,
@@ -85,20 +92,15 @@ pub struct TrapFrame {
     regs: Registers,
 
     // interrupt details
-    interrupt_vector: u32,
-    error_code: u32,
+    interrupt_vector: u64,
+    error_code: u64,
 
     // interrupt stack frame
-    eip: u32,
-    cs: u32,
-    eflags: u32,
-
-    // ESP and SS are only pushed if this is a cross-privilege-level interrupt
-    // just comment them out for now and figure out a safe way to access this
-    // info if present later:
-    //
-    // esp: u32,
-    // ss: u32,
+    eip: u64,
+    cs: u64,
+    eflags: u64,
+    esp: u64,
+    ss: u64,
 }
 
 impl TrapFrame {

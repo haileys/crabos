@@ -4,12 +4,12 @@ use crate::critical::{self, Critical};
 use crate::mem::phys::{self, Phys, MemoryExhausted};
 
 #[repr(transparent)]
-struct Entry(u32);
+struct Entry(u64);
 
 pub const PAGE_SIZE: usize = 0x1000;
 
 bitflags! {
-    pub struct PageFlags: u32 {
+    pub struct PageFlags: u64 {
         const PRESENT   = 0x001;
         const WRITE     = 0x002;
         const USER      = 0x004;
@@ -48,7 +48,7 @@ pub enum MapError {
 
 pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), MapError> {
     critical::section(|| {
-        let virt = virt as u32;
+        let virt = virt as u64;
 
         let pde = PAGE_DIRECTORY.add((virt >> 22) as usize);
         let pte = PAGE_TABLES.add((virt >> 12) as usize);
@@ -80,7 +80,7 @@ pub enum UnmapError {
 
 pub unsafe fn unmap(virt: *const u8) -> Result<(), UnmapError> {
     critical::section(|| {
-        let virt = virt as u32;
+        let virt = virt as u64;
 
         let pde = PAGE_DIRECTORY.add((virt >> 22) as usize);
         let pte = PAGE_TABLES.add((virt >> 12) as usize);
