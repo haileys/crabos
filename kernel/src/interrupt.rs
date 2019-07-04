@@ -1,4 +1,5 @@
-use x86::io;
+use x86_64::instructions::port::Port;
+use x86_64::registers::control::Cr2;
 
 pub const IRQ_BASE: u8 = 0x20;
 
@@ -64,40 +65,42 @@ interrupts! {
 #[repr(C)]
 #[derive(Debug)]
 pub struct Registers {
-    // general purpose registers (PUSHA)
-    edi: u32,
-    esi: u32,
-    ebp: u32,
-    esp0: u32,
-    ebx: u32,
-    edx: u32,
-    ecx: u32,
-    eax: u32,
+    // general purpose registers, see isrs.asm
+    pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9:  u64,
+    pub r8:  u64,
+    pub rdi: u64,
+    pub rsi: u64,
+    pub rbp: u64,
+    pub rbx: u64,
+    pub rdx: u64,
+    pub rcx: u64,
+    pub rax: u64,
     // segment registers
-    es: u32,
-    ds: u32,
+    // es: u32,
+    // ds: u32,
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub struct TrapFrame {
-    regs: Registers,
+    pub regs: Registers,
 
     // interrupt details
-    interrupt_vector: u32,
-    error_code: u32,
+    pub interrupt_vector: u64,
+    pub error_code: u64,
 
     // interrupt stack frame
-    eip: u32,
-    cs: u32,
-    eflags: u32,
-
-    // ESP and SS are only pushed if this is a cross-privilege-level interrupt
-    // just comment them out for now and figure out a safe way to access this
-    // info if present later:
-    //
-    // esp: u32,
-    // ss: u32,
+    pub rip: u64,
+    pub cs: u64,
+    pub rflags: u64,
+    pub rsp: u64,
+    pub ss: u64,
 }
 
 impl TrapFrame {
@@ -112,6 +115,9 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
 
     match frame.interrupt() {
         Interrupt::Irq(irq) => {
+            let mut pic1 = Port::<u8>::new(0x20);
+            let mut pic2 = Port::<u8>::new(0xa0);
+
             if irq == 0 {
                 // PIT
                 crate::print!(".")
@@ -119,15 +125,16 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
 
             if irq == 1 {
                 // keyboard
-                unsafe { io::inb(0x60); }
+                let mut keyboard = Port::<u8>::new(0x60);
+                unsafe { keyboard.read(); }
             }
 
             // acknowledge interupt:
-            unsafe { io::outb(0x20, 0x20); }
+            unsafe { pic1.write(0x20); }
 
             if irq >= 0x08 {
-                // irq from pic 2
-                unsafe { io::outb(0xa0, 0x20); }
+                // irq from pic 2, send separate ack
+                unsafe { pic2.write(0x20); }
             }
         }
         Interrupt::PageFault => {
@@ -136,7 +143,7 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
             let flags = Flags::from_bits(frame.error_code)
                 .expect("mem::fault::Flags::from_bits");
 
-            let address = unsafe { x86::controlregs::cr2() as *const u8 };
+            let address = Cr2::read().as_ptr();
 
             fault(frame, flags, address);
         }

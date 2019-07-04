@@ -7,7 +7,7 @@ You need a few things to build this:
 * Rust nightly
 * `cargo-xbuild`
 * `nasm`
-* A cross binutils targeting i386-elf
+* A cross binutils targeting x86_64-elf
 
 ### MacOS
 
@@ -31,7 +31,7 @@ You need a few things to build this:
     curl -O https://ftp.gnu.org/gnu/binutils/binutils-2.32.tar.gz
     tar xf binutils-2.32
     cd binutils-2.32
-    ./configure --target=i386-elf --disable-werror --prefix=$HOME/cross
+    ./configure --target=x86_64-elf --disable-werror --prefix=$HOME/cross
     make && make install
     ```
 

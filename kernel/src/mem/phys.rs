@@ -5,7 +5,7 @@ use crate::mem::page::{self, PAGE_SIZE};
 
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub struct Phys(pub u32);
+pub struct Phys(pub u64);
 
 impl Debug for Phys {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -16,8 +16,8 @@ impl Debug for Phys {
 
 #[derive(Clone, Copy)]
 struct PhysRegion {
-    begin: u32,
-    size: u32,
+    begin: u64,
+    size: u64,
 }
 
 static mut PHYS_REGIONS: [PhysRegion; 8] = [PhysRegion { begin: 0, size: 0 }; 8];
@@ -33,7 +33,7 @@ pub struct BiosMemoryRegion {
 
 const REGION_KIND_USABLE: u32 = 1;
 
-const HIGH_MEMORY_BOUNDARY: u32 = 0x100000;
+const HIGH_MEMORY_BOUNDARY: u64 = 0x100000;
 
 #[derive(Debug)]
 pub struct MemoryExhausted;
@@ -54,14 +54,10 @@ pub unsafe extern "C" fn phys_init_regions(bios_memory_map: *const BiosMemoryReg
             continue;
         }
 
-        if region.begin > u32::max_value() as u64 {
-            continue;
-        }
-
-        let region_begin = region.begin as u32;
+        let region_begin = region.begin;
         let region_end = region.begin + region.size;
 
-        if region_end < HIGH_MEMORY_BOUNDARY as u64 {
+        if region_end < HIGH_MEMORY_BOUNDARY {
             continue;
         }
 
@@ -71,11 +67,7 @@ pub unsafe extern "C" fn phys_init_regions(bios_memory_map: *const BiosMemoryReg
             region_begin
         };
 
-        let region_size = if region_end > u32::max_value() as u64 {
-            u32::max_value() - region_begin + 1
-        } else {
-            region_end as u32 - region_begin
-        };
+        let region_size = region_end - region_begin;
 
         crate::println!("    - registering as region #{}", phys_i);
         PHYS_REGIONS[phys_i].begin = region_begin;
@@ -87,7 +79,7 @@ pub unsafe extern "C" fn phys_init_regions(bios_memory_map: *const BiosMemoryReg
         }
     }
 
-    let mibibytes = PHYS_REGIONS.iter().map(|reg| reg.size).sum::<u32>() / 1024 / 1024;
+    let mibibytes = PHYS_REGIONS.iter().map(|reg| reg.size).sum::<u64>() / 1024 / 1024;
     crate::println!("  {} MiB free", mibibytes);
 
     crate::println!();
@@ -123,8 +115,8 @@ pub fn alloc() -> Result<Phys, MemoryExhausted> {
                     }
 
                     let phys = Phys(region.begin);
-                    region.begin += PAGE_SIZE as u32;
-                    region.size -= PAGE_SIZE as u32;
+                    region.begin += PAGE_SIZE as u64;
+                    region.size -= PAGE_SIZE as u64;
 
                     let mapped = page::temp_map::<u8>(phys, &crit)
                         .expect("page::temp_map");

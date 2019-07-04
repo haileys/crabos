@@ -1,0 +1,22 @@
+{
+    "arch": "x86_64",
+    "data-layout": "e-m:e-i64:64-f80:128-n8:16:32:64-S128",
+    "disable-redzone": true,
+    "executables": true,
+    "features": "-mmx,-sse,+soft-float",
+    "linker": "kernel/script/link",
+    "linker-flavor": "ld",
+    "llvm-target": "x86_64-unknown-none",
+    "morestack": false,
+    "os": "none",
+    "panic-strategy": "abort",
+    "target-c-int-width": "32",
+    "target-endian": "little",
+    "target-pointer-width": "64",
+    "relocation-model": "pic",
+    "code-model": "kernel",
+
+    "pre-link-args": {
+        "ld": ["-T", "kernel/linker.ld", "target/x86_64-kernel/start.o", "target/x86_64-kernel/isrs.o", "target/x86_64-kernel/aux.o"]
+    }
+}

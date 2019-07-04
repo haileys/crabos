@@ -16,115 +16,157 @@ global start
 start:
     incbin "target/loader/stage1.bin"
 
-; the kernel is linked with base = 0xc0000000, but the early bootloader
+; the kernel is linked with base = 0xffff800000000000, but the early bootloader
 ; places us at 0x8000 without paging enabled. we need to be careful in this
 ; early phase to translate symbol addresses to physical addresses:
 %define EARLY_PHYS(addr) ((addr) - KERNEL_BASE + KERNEL_PHYS_BASE)
 
-use32
+bits 32
 protected_mode:
     ; zero bss pages
     xor eax, eax
     mov edi, EARLY_PHYS(_bss)
-    mov ecx, _end
-    sub ecx, _bss
+    mov ecx, EARLY_PHYS(_end)
+    sub ecx, EARLY_PHYS(_bss)
     shr ecx, 2 ; div 4
     rep stosd
 
-    ; set up recursive pd map
-    mov eax, EARLY_PHYS(early_pd)
+    ; set up recursive pml4 map
+    mov eax, EARLY_PHYS(pml4)
     or eax, PAGE_PRESENT | PAGE_WRITABLE
-    mov [EARLY_PHYS(early_pd) + 1023 * 4], eax
+    mov [EARLY_PHYS(pml4) + 511 * 8], eax
 
-    ; set up pd entry for pt 0
-    mov eax, EARLY_PHYS(early_pt_0)
+    ; set up pdpt for early identity map
+    mov eax, EARLY_PHYS(pdpt_0)
     or eax, PAGE_PRESENT | PAGE_WRITABLE
-    mov dword [EARLY_PHYS(early_pd)], eax
+    mov dword [EARLY_PHYS(pml4)], eax
 
-    ; identity map first MiB of phys memory, except null page
-    mov esi, 0x1000
-.map_low:
-    mov eax, esi
+    ; set up pd for early identity map
+    mov eax, EARLY_PHYS(pd_0)
     or eax, PAGE_PRESENT | PAGE_WRITABLE
-    mov ebx, esi
-    shr ebx, 12
-    mov dword [EARLY_PHYS(early_pt_0) + ebx * 4], eax
-    add esi, PAGE_SIZE
-    cmp esi, 0x100000
-    jb .map_low
+    mov [EARLY_PHYS(pdpt_0)], eax
 
-    ; setup pd entry for pt k
-    mov eax, EARLY_PHYS(early_pt_k)
-    or eax, PAGE_PRESENT | PAGE_WRITABLE
-    mov dword [EARLY_PHYS(early_pd) + ((0xc0000000 >> 22) * 4)], eax
+    ; identity map first 4 MiB of phys memory
+    mov eax, PAGE_PRESENT | PAGE_WRITABLE | PAGE_HUGE
+    mov [EARLY_PHYS(pd_0)], eax
 
-    ; map kernel in pt k
-    mov edi, EARLY_PHYS(early_pt_k)
-    mov esi, _base
-.map_kernel:
-    ; build pt k entry
-    mov eax, esi
-    sub eax, KERNEL_BASE - KERNEL_PHYS_BASE
-    or eax, PAGE_PRESENT
-    cmp esi, _rodata_end
-    jb .no_write
-    or eax, PAGE_WRITABLE
-.no_write:
-    stosd
-    ; compare to end
-    add esi, PAGE_SIZE
-    cmp esi, _end
-    jb .map_kernel
-
-    ; set cr3
-    mov eax, EARLY_PHYS(early_pd)
+    ; load pml4 into cr3
+    mov eax, EARLY_PHYS(pml4)
     mov cr3, eax
+
+    ; enable various extensions in cr4
+    %define CR4_PAGE_SIZE_EXT (1 << 4)
+    %define CR4_PHYS_ADDR_EXT (1 << 5)
+    mov eax, cr4
+    or eax, CR4_PAGE_SIZE_EXT | CR4_PHYS_ADDR_EXT
+    mov cr4, eax
+
+    ; enable long mode
+    mov ecx, 0xc0000080
+    rdmsr
+    or eax, 1 << 8
+    wrmsr
 
     ; enable paging
     mov eax, cr0
     or eax, 1 << 31
     mov cr0, eax
 
+    ; load 64 bit GDT
+    mov eax, EARLY_PHYS(gdtr)
+    lgdt [eax]
+
+    ; reload code segment
+    jmp 0x08:EARLY_PHYS(long_mode)
+
+bits 64
+long_mode:
+    ; setup pml4 entry for pdpt_k
+    mov rax, EARLY_PHYS(pdpt_k)
+    or rax, PAGE_PRESENT | PAGE_WRITABLE
+    mov rbx, EARLY_PHYS(pml4) + ((KERNEL_BASE >> 39) & 511) * 8
+    mov [rbx], rax
+
+    ; setup pdpt_k entry for pd_k
+    mov rax, EARLY_PHYS(pd_k)
+    or rax, PAGE_PRESENT | PAGE_WRITABLE
+    mov rbx, EARLY_PHYS(pdpt_k) + ((KERNEL_BASE >> 30) & 511) * 8
+    mov [rbx], rax
+
+    ; setup pd_k entry for pt_k
+    mov rax, EARLY_PHYS(pt_k)
+    or rax, PAGE_PRESENT | PAGE_WRITABLE
+    mov rbx, EARLY_PHYS(pd_k) + ((KERNEL_BASE >> 21) & 511) * 8
+    mov [rbx], rax
+
+    ; map kernel in pt k
+    mov rdi, EARLY_PHYS(pt_k)
+    mov rsi, _base
+    mov r8, _rodata_end
+    mov r9, _end
+.map_kernel:
+    ; build pt k entry
+    mov rax, rsi
+    mov rbx, KERNEL_BASE - KERNEL_PHYS_BASE
+    sub rax, rbx
+    or rax, PAGE_PRESENT
+    cmp rsi, r8
+    jb .no_write
+    or rax, PAGE_WRITABLE
+.no_write:
+    stosq
+    ; compare to end
+    add rsi, PAGE_SIZE
+    cmp rsi, r9
+    jb .map_kernel
+
     ; jump to kernel in higher half
-    mov eax, higher_half
-    jmp eax
+    mov rax, higher_half
+    jmp rax
 
 higher_half:
     ; unmap stack guard
-    mov ebx, stackguard
-    shr ebx, 12
-    mov [0xffc00000 + ebx * 4], dword 0
+    mov rbx, stackguard
+    mov rax, 0x0000ffffffffffff
+    and rbx, rax
+    shr rbx, 12
+    shl rbx, 3 ; * 8
+    mov rax, PAGE_TABLES
+    add rbx, rax
+    mov [rbx], dword 0
 
     ; set up kernel stack
-    mov esp, stackend
-    xor ebp, ebp
+    mov rsp, stackend
 
     ; init phys allocator
-    mov eax, [EARLY_MEMORY_MAP_LEN]
-    push eax
-    push EARLY_MEMORY_MAP
+    mov rsi, [EARLY_MEMORY_MAP_LEN]
+    mov rdi, EARLY_MEMORY_MAP
     call phys_init_regions
-    add esp, 8
 
     ; unmap low memory
-    xor eax, eax
-    mov edi, PAGE_TABLES
-    mov ecx, 1024
-    rep stosd
+    xor rax, rax
+    mov rbx, EARLY_PHYS(pml4)
+    mov [rbx], rax
 
     ; flush TLB
-    mov eax, cr3
-    mov cr3, eax
+    mov rax, cr3
+    mov cr3, rax
 
-    ; point tss base to tss
-    mov eax, tss
-    mov [gdt.tss_base_0_15], ax
-    shr eax, 16
-    mov [gdt.tss_base_16_23], al
-    mov [gdt.tss_base_24_31], ah
+    ; point tss gdt entry to tss
+    mov [rel gdt.tss_size_0_15], word tss.end - tss
+    mov rax, tss
+    mov [rel gdt.tss_base_0_15], ax
+    shr rax, 16
+    mov [rel gdt.tss_base_16_23], al
+    shr rax, 8
+    mov [rel gdt.tss_base_24_31], al
+    shr rax, 8
+    mov [rel gdt.tss_base_32_63], eax
 
     ; reload GDT in high memory
-    lgdt [gdtr]
+    mov rax, qword gdt
+    mov [rel gdtr.offset], rax
+    lgdt [rel gdtr]
 
     ; load tss
     mov ax, SEG_TSS
@@ -141,50 +183,59 @@ higher_half:
 
 section .data
 gdtr:
-    dw (gdt.end - gdt) - 1 ; size
-    dd gdt                 ; offset
+    .size   dw (gdt.end - gdt) - 1 ; size
+    .offset dq EARLY_PHYS(gdt)     ; offset
 
 gdt:
     ; null entry
     dq 0
     ; code entry
-    dw 0xffff       ; limit 0:15
-    dw 0x0000       ; base 0:15
-    db 0x00         ; base 16:23
-    db 0b10011010   ; access byte - code
-    db 0xcf         ; flags/(limit 16:19). 4 KB granularity + 32 bit mode flags
-    db 0x00         ; base 24:31
+    dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE | GDT64_EXECUTABLE | GDT64_64BIT
     ; data entry
-    dw 0xffff       ; limit 0:15
-    dw 0x0000       ; base 0:15
-    db 0x00         ; base 16:23
-    db 0b10010010   ; access byte - data
-    db 0xcf         ; flags/(limit 16:19). 4 KB granularity + 32 bit mode flags
-    db 0x00         ; base 24:31
+    dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE
     ; tss entry
-    dw TSS_SIZE     ; limit 0:15
+    .tss_size_0_15  dw 0
     .tss_base_0_15  dw 0
     .tss_base_16_23 db 0
-    db 0x89         ; access byte - tss
-    db 0x40         ; flags/(limit 16:19)
+    .tss_access     db 0x89
+    .tss_flags_lim  db (1 << 4)
     .tss_base_24_31 db 0
+    .tss_base_32_63 dd 0
+    .tss_reserved   dd 0
 .end:
 
 global tss
 tss:
-    dd 0            ; link
-    dd stackend     ; esp0
-    dd SEG_KDATA    ; ss0
-    times (TSS_IOPB_OFFSET - (4 * 3)) db 0 ; skip unused fields
-    dw 0            ; reserved
-    dw TSS_SIZE     ; iopb offset
+    dd 0                ; reserved
+    dq stackend         ; rsp0
+    dq 0                ; rsp1
+    dq 0                ; rsp2
+    dq 0                ; reserved
+    dq 0                ; ist1
+    dq 0                ; ist2
+    dq 0                ; ist3
+    dq 0                ; ist4
+    dq 0                ; ist5
+    dq 0                ; ist6
+    dq 0                ; ist7
+    dq 0                ; reserved
+    dw 0                ; reserved
+    dw (tss.end - tss)  ; iopb offset
+.end:
 
 section .bss
     align PAGE_SIZE
-    early_pd    resb PAGE_SIZE
-    early_pt_0  resb PAGE_SIZE
-    early_pt_k  resb PAGE_SIZE
-    memory_map  resb PAGE_SIZE
+    pml4    resb PAGE_SIZE
+    ; early huge 4 MiB identity mapping to get us rolling:
+    pdpt_0  resb PAGE_SIZE
+    pd_0    resb PAGE_SIZE
+    ; higher half kernel mapping tables:
+    pdpt_k  resb PAGE_SIZE
+    pd_k    resb PAGE_SIZE
+    pt_k    resb PAGE_SIZE
+
+    memory_map      resb PAGE_SIZE
+
     global temp_page
     temp_page   resb PAGE_SIZE
 
