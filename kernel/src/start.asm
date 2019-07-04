@@ -189,10 +189,14 @@ gdtr:
 gdt:
     ; null entry
     dq 0
-    ; code entry
+    ; kernel code entry
     dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE | GDT64_EXECUTABLE | GDT64_64BIT
-    ; data entry
+    ; kernel data entry
     dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE
+    ; user code entry
+    dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE | GDT64_EXECUTABLE | GDT64_64BIT | GDT64_USER
+    ; user data entry
+    dq GDT64_DESCRIPTOR | GDT64_PRESENT | GDT64_READWRITE | GDT64_USER
     ; tss entry
     .tss_size_0_15  dw 0
     .tss_base_0_15  dw 0

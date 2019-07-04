@@ -18,7 +18,11 @@ mod mem;
 mod panic;
 mod sync;
 
+use core::ptr;
+
 use mem::kvirt::WatermarkAllocator;
+use mem::phys;
+use mem::page::{self, PageFlags};
 
 extern "C" {
     static mut _end: u8;
@@ -29,24 +33,42 @@ pub static DEFAULT_ALLOCATOR: WatermarkAllocator = unsafe {
     WatermarkAllocator::new(&_end as *const u8 as *mut u8)
 };
 
-// Important! main must not have a ! return type otherwise panic::unwind gets
-// confused. In start.asm we push 0 to the stack before jmping to main.
-//
 #[no_mangle]
-pub extern "C" fn main() {
+pub extern "C" fn main() -> ! {
     unsafe {
         let critical = critical::begin();
 
         // init temp mapping
-        mem::page::temp_unmap(&critical);
+        page::temp_unmap(&critical);
 
         // init pit
         device::pit::init();
     }
 
-    println!("Hello world!");
+    let user_bin = [0xeb, 0xfe];
+    let user_addr = 0x1_0000_0000 as *mut u8;
 
-    loop {
-        // unsafe { asm!("hlt"); }
+    unsafe {
+        let phys = phys::alloc()
+            .expect("phys::alloc");
+
+        page::map(phys, user_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
+            .expect("page::map");
+
+        ptr::copy(user_bin.as_ptr(), user_addr, user_bin.len());
+
+        asm!(r#"
+            push $$0x23
+            push $$0x0
+            pushf
+            push $$0x1b
+            push $0
+            iretq
+        "#
+            :: "r"(user_addr)
+            :: "volatile"
+        );
     }
+
+    loop {}
 }
