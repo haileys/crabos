@@ -95,7 +95,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
             let pml3_tab = phys::alloc().map_err(|_: MemoryExhausted|
                 MapError::CannotAllocatePageTable)?;
 
-            *pml4_ent = PmlEntry(pml3_tab.0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
+            *pml4_ent = PmlEntry(pml3_tab.into_raw() | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
             invlpg(pml3_ent as *const u8);
         }
 
@@ -104,7 +104,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
             let pml2_tab = phys::alloc().map_err(|_: MemoryExhausted|
                 MapError::CannotAllocatePageTable)?;
 
-            *pml3_ent = PmlEntry(pml2_tab.0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
+            *pml3_ent = PmlEntry(pml2_tab.into_raw() | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
             invlpg(pml2_ent as *const u8);
         }
 
@@ -113,7 +113,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
             let pml1_tab = phys::alloc().map_err(|_: MemoryExhausted|
                 MapError::CannotAllocatePageTable)?;
 
-            *pml2_ent = PmlEntry(pml1_tab.0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
+            *pml2_ent = PmlEntry(pml1_tab.into_raw() | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
             invlpg(pml1_ent as *const u8);
         }
 
@@ -121,7 +121,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
             return Err(MapError::AlreadyMapped);
         }
 
-        *pml1_ent = PmlEntry(phys.0 | flags.bits());
+        *pml1_ent = PmlEntry(phys.into_raw() | flags.bits());
         invlpg(virt as *const u8);
 
         Ok(())

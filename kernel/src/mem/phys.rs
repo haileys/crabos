@@ -5,7 +5,13 @@ use crate::mem::page::{self, PAGE_SIZE};
 
 #[repr(transparent)]
 #[derive(Copy, Clone)]
-pub struct Phys(pub u64);
+pub struct Phys(u64);
+
+impl Phys {
+    pub fn into_raw(self) -> u64 {
+        self.0
+    }
+}
 
 impl Debug for Phys {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
