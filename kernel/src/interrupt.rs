@@ -66,21 +66,21 @@ interrupts! {
 #[derive(Debug)]
 pub struct Registers {
     // general purpose registers, see isrs.asm
-    r15: u64,
-    r14: u64,
-    r13: u64,
-    r12: u64,
-    r11: u64,
-    r10: u64,
-    r9:  u64,
-    r8:  u64,
-    rdi: u64,
-    rsi: u64,
-    rbp: u64,
-    rbx: u64,
-    rdx: u64,
-    rcx: u64,
-    rax: u64,
+    pub r15: u64,
+    pub r14: u64,
+    pub r13: u64,
+    pub r12: u64,
+    pub r11: u64,
+    pub r10: u64,
+    pub r9:  u64,
+    pub r8:  u64,
+    pub rdi: u64,
+    pub rsi: u64,
+    pub rbp: u64,
+    pub rbx: u64,
+    pub rdx: u64,
+    pub rcx: u64,
+    pub rax: u64,
     // segment registers
     // es: u32,
     // ds: u32,
@@ -89,18 +89,18 @@ pub struct Registers {
 #[repr(C)]
 #[derive(Debug)]
 pub struct TrapFrame {
-    regs: Registers,
+    pub regs: Registers,
 
     // interrupt details
-    interrupt_vector: u64,
-    error_code: u64,
+    pub interrupt_vector: u64,
+    pub error_code: u64,
 
     // interrupt stack frame
-    eip: u64,
-    cs: u64,
-    eflags: u64,
-    esp: u64,
-    ss: u64,
+    pub rip: u64,
+    pub cs: u64,
+    pub rflags: u64,
+    pub rsp: u64,
+    pub ss: u64,
 }
 
 impl TrapFrame {
