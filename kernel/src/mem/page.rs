@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 use crate::critical::{self, Critical};
-use crate::mem::phys::{self, Phys, MemoryExhausted};
+use crate::mem::phys::{self, Phys, RawPhys, MemoryExhausted};
 
 pub const PAGE_SIZE: usize = 0x1000;
 
@@ -9,11 +9,11 @@ pub const PAGE_SIZE: usize = 0x1000;
 struct PmlEntry(u64);
 
 impl PmlEntry {
-    pub fn phys(&self) -> Option<u64> {
-        // TODO might need to use a different bit other than present when we
-        // start demand mapping/paging out
-        if self.flags().contains(PageFlags::PRESENT) {
-            Some(self.0 & !0xfff)
+    fn raw_phys(&self) -> Option<RawPhys> {
+        let raw = self.0 & !0xfff;
+
+        if raw != 0 {
+            Some(RawPhys(raw))
         } else {
             None
         }
@@ -62,15 +62,22 @@ pub fn invlpg(virt: *const u8) {
 
 // the existence of a reference to CriticalLock proves we're in a critical
 // section:
-pub unsafe fn temp_map<T>(phys: Phys, _critical: &Critical) -> Result<*mut T, MapError> {
+pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> Result<*mut T, MapError> {
     let virt = &mut temp_page as *mut u8;
-    map(phys, virt, PageFlags::PRESENT | PageFlags::WRITE)?;
+    let entry = pml1_entry(virt as u64);
+
+    if (*entry).0 != 0 {
+        panic!("temp page already mapped");
+    }
+
+    *entry = PmlEntry(phys.0 | (PageFlags::PRESENT | PageFlags::WRITE).bits());
+
     Ok(virt as *mut T)
 }
 
 pub unsafe fn temp_unmap(_critical: &Critical) {
     let virt = &mut temp_page as *mut u8;
-    unmap(virt).expect("unmap");
+    *pml1_entry(virt as u64) = PmlEntry(0);
 }
 
 #[derive(Debug)]
@@ -95,7 +102,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
             let pml3_tab = phys::alloc().map_err(|_: MemoryExhausted|
                 MapError::CannotAllocatePageTable)?;
 
-            *pml4_ent = PmlEntry(pml3_tab.into_raw() | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
+            *pml4_ent = PmlEntry(pml3_tab.into_raw().0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
             invlpg(pml3_ent as *const u8);
         }
 
@@ -104,7 +111,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
             let pml2_tab = phys::alloc().map_err(|_: MemoryExhausted|
                 MapError::CannotAllocatePageTable)?;
 
-            *pml3_ent = PmlEntry(pml2_tab.into_raw() | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
+            *pml3_ent = PmlEntry(pml2_tab.into_raw().0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
             invlpg(pml2_ent as *const u8);
         }
 
@@ -113,7 +120,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
             let pml1_tab = phys::alloc().map_err(|_: MemoryExhausted|
                 MapError::CannotAllocatePageTable)?;
 
-            *pml2_ent = PmlEntry(pml1_tab.into_raw() | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
+            *pml2_ent = PmlEntry(pml1_tab.into_raw().0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
             invlpg(pml1_ent as *const u8);
         }
 
@@ -121,7 +128,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
             return Err(MapError::AlreadyMapped);
         }
 
-        *pml1_ent = PmlEntry(phys.into_raw() | flags.bits());
+        *pml1_ent = PmlEntry(phys.into_raw().0 | flags.bits());
         invlpg(virt as *const u8);
 
         Ok(())
@@ -154,12 +161,16 @@ pub unsafe fn unmap(virt: *const u8) -> Result<(), UnmapError> {
             return Err(UnmapError::NotMapped);
         }
 
-        if (*pml1_ent).0 == 0 {
-            return Err(UnmapError::NotMapped);
+        match (*pml1_ent).raw_phys() {
+            Some(raw_phys) => {
+                // ensure we decrement the ref count of the physical page:
+                Phys::from_raw(raw_phys);
+                *pml1_ent = PmlEntry(0);
+                Ok(())
+            }
+            None => {
+                Err(UnmapError::NotMapped)
+            }
         }
-
-        *pml1_ent = PmlEntry(0);
-
-        Ok(())
     })
 }
