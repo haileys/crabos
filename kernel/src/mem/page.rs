@@ -88,6 +88,35 @@ pub enum MapError {
     CannotAllocatePageTable,
 }
 
+pub fn is_mapped(virt: *const u8) -> bool {
+    critical::section(|| {
+        let virt = virt as u64;
+
+        unsafe {
+            let pml4_ent = pml4_entry(virt);
+            let pml3_ent = pml3_entry(virt);
+            let pml2_ent = pml2_entry(virt);
+            let pml1_ent = pml1_entry(virt);
+
+            // ensure all pml tables exist:
+
+            if (*pml4_ent).0 == 0 {
+                return false;
+            }
+
+            if (*pml3_ent).0 == 0 {
+                return false;
+            }
+
+            if (*pml2_ent).0 == 0 {
+                return false;
+            }
+
+            (*pml1_ent).0 != 0
+        }
+    })
+}
+
 pub unsafe fn map(phys: Phys, virt: *mut u8, flags: PageFlags) -> Result<(), MapError> {
     critical::section(|| {
         let virt = virt as u64;
