@@ -71,6 +71,7 @@ pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> Result<*mut T,
     }
 
     *entry = PmlEntry(phys.0 | (PageFlags::PRESENT | PageFlags::WRITE).bits());
+    invlpg(virt);
 
     Ok(virt as *mut T)
 }
@@ -78,6 +79,7 @@ pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> Result<*mut T,
 pub unsafe fn temp_unmap(_critical: &Critical) {
     let virt = &mut temp_page as *mut u8;
     *pml1_entry(virt as u64) = PmlEntry(0);
+    invlpg(virt);
 }
 
 #[derive(Debug)]
@@ -166,6 +168,7 @@ pub unsafe fn unmap(virt: *const u8) -> Result<(), UnmapError> {
                 // ensure we decrement the ref count of the physical page:
                 Phys::from_raw(raw_phys);
                 *pml1_ent = PmlEntry(0);
+                invlpg(virt as *const u8);
                 Ok(())
             }
             None => {
