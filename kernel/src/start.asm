@@ -144,7 +144,7 @@ higher_half:
     mov rsp, stackend
 
     ; init phys allocator
-    mov rsi, [EARLY_MEMORY_MAP_LEN]
+    mov esi, [EARLY_MEMORY_MAP_LEN]
     mov rdi, EARLY_MEMORY_MAP
     call phys_init_regions
 
