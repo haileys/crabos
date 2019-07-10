@@ -120,6 +120,10 @@ long_mode:
     cmp rsi, r9
     jb .map_kernel
 
+    ; flush TLB
+    mov rax, cr3
+    mov cr3, rax
+
     ; jump to kernel in higher half
     mov rax, higher_half
     jmp rax
@@ -134,6 +138,7 @@ higher_half:
     mov rax, PAGE_TABLES
     add rbx, rax
     mov [rbx], dword 0
+    invlpg [rel stackguard]
 
     ; set up kernel stack
     mov rsp, stackend
