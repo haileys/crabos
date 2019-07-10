@@ -5,7 +5,7 @@ use32
 extern _base
 extern _bss
 extern _rodata_end
-extern _end
+extern _bss_end
 extern main
 extern phys_init_regions
 extern isrs_init
@@ -26,7 +26,7 @@ protected_mode:
     ; zero bss pages
     xor eax, eax
     mov edi, EARLY_PHYS(_bss)
-    mov ecx, EARLY_PHYS(_end)
+    mov ecx, EARLY_PHYS(_bss_end)
     sub ecx, EARLY_PHYS(_bss)
     shr ecx, 2 ; div 4
     rep stosd
@@ -103,7 +103,7 @@ long_mode:
     mov rdi, EARLY_PHYS(pt_k)
     mov rsi, _base
     mov r8, _rodata_end
-    mov r9, _end
+    mov r9, _bss_end
 .map_kernel:
     ; build pt k entry
     mov rax, rsi

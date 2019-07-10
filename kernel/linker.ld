@@ -44,5 +44,17 @@ SECTIONS {
         *(.stack.*)
     }
 
+    _bss_end = .;
+
+    _phys_rc = .;
+
+    /* 48 physical address lines,
+       divided by page size,
+       multiplied by 8 (size of u64) */
+
+    . += (1 << 48) / 4096 * 8;
+
+    _phys_rc_end = .;
+
     _end = .;
 }
