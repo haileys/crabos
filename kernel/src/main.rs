@@ -38,9 +38,6 @@ pub extern "C" fn main() -> ! {
     unsafe {
         let critical = critical::begin();
 
-        // init temp mapping
-        page::temp_unmap(&critical);
-
         // init pit
         device::pit::init();
     }

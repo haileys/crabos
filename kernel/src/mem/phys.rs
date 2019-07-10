@@ -1,7 +1,17 @@
 use core::fmt::{self, Debug};
-use core::ptr;
+use core::ptr::{self, NonNull};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
 use crate::critical;
-use crate::mem::page::{self, PAGE_SIZE};
+use crate::mem::page::{self, PAGE_SIZE, PageFlags};
+use crate::sync::Mutex;
+
+static PHYS_REGIONS: Mutex<Option<[PhysRegion; 8]>> = Mutex::new(None);
+static mut NEXT_FREE_PHYS: Option<RawPhys> = None;
+
+const REGION_KIND_USABLE: u32 = 1;
+const HIGH_MEMORY_BOUNDARY: RawPhys = RawPhys(0x100000);
+
 
 #[repr(transparent)]
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
@@ -41,14 +51,11 @@ impl Debug for Phys {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct PhysRegion {
     begin: RawPhys,
     size: u64,
 }
-
-static mut PHYS_REGIONS: [PhysRegion; 8] = [PhysRegion { begin: RawPhys(0), size: 0 }; 8];
-static mut NEXT_FREE_PHYS: Option<RawPhys> = None;
 
 #[repr(C)]
 pub struct BiosMemoryRegion {
@@ -58,9 +65,7 @@ pub struct BiosMemoryRegion {
     acpi_ex_attrs: u32,
 }
 
-const REGION_KIND_USABLE: u32 = 1;
 
-const HIGH_MEMORY_BOUNDARY: RawPhys = RawPhys(0x100000);
 
 #[derive(Debug)]
 pub struct MemoryExhausted;
@@ -69,7 +74,25 @@ pub struct MemoryExhausted;
 pub unsafe extern "C" fn phys_init(bios_memory_map: *const BiosMemoryRegion, region_count: u16) {
     crate::println!("Initialising physical page allocator...");
 
+    // init temp mapping
+    page::temp_unmap(&critical::begin());
+
     let mut phys_i = 0;
+
+    // XXX - it's important PhysRegion is not Copy to prevent bugs from
+    // unintentional copies out of the mutex-guarded static. This means we're
+    // unable to use the repeat array initializer syntax here:
+    const NULL_PHYS_REGION: PhysRegion = PhysRegion { begin: RawPhys(0), size: 0 };
+    let mut phys_regions = [
+        NULL_PHYS_REGION,
+        NULL_PHYS_REGION,
+        NULL_PHYS_REGION,
+        NULL_PHYS_REGION,
+        NULL_PHYS_REGION,
+        NULL_PHYS_REGION,
+        NULL_PHYS_REGION,
+        NULL_PHYS_REGION,
+    ];
 
     for i in 0..region_count {
         let region = &*bios_memory_map.add(i as usize);
@@ -97,81 +120,84 @@ pub unsafe extern "C" fn phys_init(bios_memory_map: *const BiosMemoryRegion, reg
         let region_size = region_end.0 - region_begin.0;
 
         crate::println!("    - registering as region #{}", phys_i);
-        PHYS_REGIONS[phys_i].begin = region_begin;
-        PHYS_REGIONS[phys_i].size = region_size;
+        phys_regions[phys_i].begin = region_begin;
+        phys_regions[phys_i].size = region_size;
         phys_i += 1;
 
-        if phys_i == PHYS_REGIONS.len() {
+        if phys_i == phys_regions.len() {
             break;
         }
     }
 
-    let mibibytes = PHYS_REGIONS.iter().map(|reg| reg.size).sum::<u64>() / 1024 / 1024;
+    let mibibytes = phys_regions.iter().map(|reg| reg.size).sum::<u64>() / 1024 / 1024;
     crate::println!("  {} MiB free", mibibytes);
+
+    *PHYS_REGIONS.lock() = Some(phys_regions.clone());
 
     crate::println!();
 }
 
-pub fn alloc() -> Result<Phys, MemoryExhausted> {
+fn alloc_freelist() -> Option<Phys> {
     let crit = critical::begin();
 
     unsafe {
-        match NEXT_FREE_PHYS.take() {
-            Some(raw_phys) => {
-                let mapped = page::temp_map::<Option<RawPhys>>(raw_phys, &crit)
-                    // this should never fail:
-                    //   - a temporary mapping should not exist on entry to
-                    //     this function
-                    //   - the page directory entry for the temporary page
-                    //     should already exist
-                    .expect("page::temp_map");
+        if let Some(phys) = NEXT_FREE_PHYS.take() {
+            let phys = Phys::new(phys);
 
-                // pull linked next free phys out:
-                NEXT_FREE_PHYS = (*mapped).take();
+            let mapped = page::temp_map::<Option<RawPhys>>(RawPhys(phys.0), &crit)
+                // this should never fail:
+                //   - a temporary mapping should not exist on entry to
+                //     this function
+                //   - the page directory entry for the temporary page
+                //     should already exist
+                .expect("page::temp_map");
 
-                // zero page before returning:
-                ptr::write_bytes(mapped, 0, PAGE_SIZE);
+            // pull linked next free phys out:
+            NEXT_FREE_PHYS = (*mapped).take();
 
-                page::temp_unmap(&crit);
-                Ok(Phys::new(raw_phys))
-            }
-            None => {
-                for region in &mut PHYS_REGIONS {
-                    if region.size == 0 {
-                        continue;
-                    }
+            // zero page before returning:
+            ptr::write_bytes(mapped, 0, PAGE_SIZE);
 
-                    let raw_phys = region.begin;
-                    region.begin.0 += PAGE_SIZE as u64;
-                    region.size -= PAGE_SIZE as u64;
-
-                    let mapped = page::temp_map::<u8>(raw_phys, &crit)
-                        .expect("page::temp_map");
-                    ptr::write_bytes(mapped, 0, PAGE_SIZE);
-                    page::temp_unmap(&crit);
-
-                    return Ok(Phys::new(raw_phys));
-                }
-
-                Err(MemoryExhausted)
-            }
+            page::temp_unmap(&crit);
+            Some(phys)
+        } else {
+            None
         }
     }
 }
 
-impl Drop for Phys {
-    fn drop(&mut self) {
-        // TODO decrement ref count
+fn alloc_new(regions: &mut [PhysRegion]) -> Result<Phys, MemoryExhausted> {
+    for region in regions {
+        if region.size == 0 {
+            continue;
+        }
 
-        let crit = critical::begin();
+        let raw_phys = region.begin;
+        region.begin.0 += PAGE_SIZE as u64;
+        region.size -= PAGE_SIZE as u64;
+
+        let phys = unsafe { Phys::new(raw_phys) };
 
         unsafe {
-            let link = page::temp_map::<Option<RawPhys>>(RawPhys(self.0), &crit)
+            let crit = critical::begin();
+            let mapped = page::temp_map::<u8>(raw_phys, &crit)
                 .expect("page::temp_map");
-            *link = NEXT_FREE_PHYS.take();
+            ptr::write_bytes(mapped, 0, PAGE_SIZE);
             page::temp_unmap(&crit);
-
-            NEXT_FREE_PHYS = Some(RawPhys(self.0));
         }
+
+        return Ok(phys);
     }
+
+    Err(MemoryExhausted)
+}
+
+pub fn alloc() -> Result<Phys, MemoryExhausted> {
+    if let Some(page) = alloc_freelist() {
+        return Ok(page);
+    }
+
+    alloc_new(PHYS_REGIONS.lock()
+        .as_mut()
+        .expect("PHYS_REGIONS is None in phys::alloc"))
 }
