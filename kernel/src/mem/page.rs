@@ -56,7 +56,7 @@ extern "C" {
     static mut temp_page: u8;
 }
 
-pub fn invlpg(virt: *const u8) {
+pub fn invlpg(virt: *mut u8) {
     unsafe { asm!("invlpg ($0)" :: "r"(virt) : "memory" : "volatile"); }
 }
 
@@ -88,7 +88,7 @@ pub enum MapError {
     CannotAllocatePageTable,
 }
 
-pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), MapError> {
+pub unsafe fn map(phys: Phys, virt: *mut u8, flags: PageFlags) -> Result<(), MapError> {
     critical::section(|| {
         let virt = virt as u64;
 
@@ -105,7 +105,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
                 MapError::CannotAllocatePageTable)?;
 
             *pml4_ent = PmlEntry(pml3_tab.into_raw().0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
-            invlpg(pml3_ent as *const u8);
+            invlpg(pml3_ent as *mut u8);
         }
 
         if (*pml3_ent).0 == 0 {
@@ -114,7 +114,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
                 MapError::CannotAllocatePageTable)?;
 
             *pml3_ent = PmlEntry(pml2_tab.into_raw().0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
-            invlpg(pml2_ent as *const u8);
+            invlpg(pml2_ent as *mut u8);
         }
 
         if (*pml2_ent).0 == 0 {
@@ -123,7 +123,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
                 MapError::CannotAllocatePageTable)?;
 
             *pml2_ent = PmlEntry(pml1_tab.into_raw().0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
-            invlpg(pml1_ent as *const u8);
+            invlpg(pml1_ent as *mut u8);
         }
 
         if (*pml1_ent).0 != 0 {
@@ -131,7 +131,7 @@ pub unsafe fn map(phys: Phys, virt: *const u8, flags: PageFlags) -> Result<(), M
         }
 
         *pml1_ent = PmlEntry(phys.into_raw().0 | flags.bits());
-        invlpg(virt as *const u8);
+        invlpg(virt as *mut u8);
 
         Ok(())
     })
@@ -142,7 +142,7 @@ pub enum UnmapError {
     NotMapped,
 }
 
-pub unsafe fn unmap(virt: *const u8) -> Result<(), UnmapError> {
+pub unsafe fn unmap(virt: *mut u8) -> Result<(), UnmapError> {
     critical::section(|| {
         let virt = virt as u64;
 
@@ -168,7 +168,7 @@ pub unsafe fn unmap(virt: *const u8) -> Result<(), UnmapError> {
                 // ensure we decrement the ref count of the physical page:
                 Phys::from_raw(raw_phys);
                 *pml1_ent = PmlEntry(0);
-                invlpg(virt as *const u8);
+                invlpg(virt as *mut u8);
                 Ok(())
             }
             None => {
