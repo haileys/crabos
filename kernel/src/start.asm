@@ -7,7 +7,7 @@ extern _bss
 extern _rodata_end
 extern _bss_end
 extern main
-extern phys_init_regions
+extern phys_init
 extern isrs_init
 
 global start
@@ -146,7 +146,7 @@ higher_half:
     ; init phys allocator
     mov esi, [EARLY_MEMORY_MAP_LEN]
     mov rdi, EARLY_MEMORY_MAP
-    call phys_init_regions
+    call phys_init
 
     ; unmap low memory
     xor rax, rax

@@ -66,7 +66,7 @@ const HIGH_MEMORY_BOUNDARY: RawPhys = RawPhys(0x100000);
 pub struct MemoryExhausted;
 
 #[no_mangle]
-pub unsafe extern "C" fn phys_init_regions(bios_memory_map: *const BiosMemoryRegion, region_count: u16) {
+pub unsafe extern "C" fn phys_init(bios_memory_map: *const BiosMemoryRegion, region_count: u16) {
     crate::println!("Initialising physical page allocator...");
 
     let mut phys_i = 0;
