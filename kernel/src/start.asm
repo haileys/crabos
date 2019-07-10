@@ -234,16 +234,16 @@ tss:
 
 section .bss
     align PAGE_SIZE
-    pml4    resb PAGE_SIZE
+    pml4        resb PAGE_SIZE
     ; early huge 4 MiB identity mapping to get us rolling:
-    pdpt_0  resb PAGE_SIZE
-    pd_0    resb PAGE_SIZE
+    pdpt_0      resb PAGE_SIZE
+    pd_0        resb PAGE_SIZE
     ; higher half kernel mapping tables:
-    pdpt_k  resb PAGE_SIZE
-    pd_k    resb PAGE_SIZE
-    pt_k    resb PAGE_SIZE
+    pdpt_k      resb PAGE_SIZE
+    pd_k        resb PAGE_SIZE
+    pt_k        resb PAGE_SIZE
 
-    memory_map      resb PAGE_SIZE
+    memory_map  resb PAGE_SIZE
 
     global temp_page
     temp_page   resb PAGE_SIZE
