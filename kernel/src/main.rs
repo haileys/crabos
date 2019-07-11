@@ -36,10 +36,10 @@ pub static DEFAULT_ALLOCATOR: WatermarkAllocator = unsafe {
 #[no_mangle]
 pub extern "C" fn main() -> ! {
     unsafe {
-        let critical = critical::begin();
+        let crit = critical::begin();
 
-        // init temp mapping
-        page::temp_unmap(&critical);
+        // perform follow up init for phys allocator
+        phys::init_ref_counts(&crit);
 
         // init pit
         device::pit::init();

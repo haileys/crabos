@@ -5,9 +5,9 @@ use32
 extern _base
 extern _bss
 extern _rodata_end
-extern _end
+extern _bss_end
 extern main
-extern phys_init_regions
+extern phys_init
 extern isrs_init
 
 global start
@@ -26,7 +26,7 @@ protected_mode:
     ; zero bss pages
     xor eax, eax
     mov edi, EARLY_PHYS(_bss)
-    mov ecx, EARLY_PHYS(_end)
+    mov ecx, EARLY_PHYS(_bss_end)
     sub ecx, EARLY_PHYS(_bss)
     shr ecx, 2 ; div 4
     rep stosd
@@ -103,7 +103,7 @@ long_mode:
     mov rdi, EARLY_PHYS(pt_k)
     mov rsi, _base
     mov r8, _rodata_end
-    mov r9, _end
+    mov r9, _bss_end
 .map_kernel:
     ; build pt k entry
     mov rax, rsi
@@ -120,6 +120,10 @@ long_mode:
     cmp rsi, r9
     jb .map_kernel
 
+    ; flush TLB
+    mov rax, cr3
+    mov cr3, rax
+
     ; jump to kernel in higher half
     mov rax, higher_half
     jmp rax
@@ -134,14 +138,15 @@ higher_half:
     mov rax, PAGE_TABLES
     add rbx, rax
     mov [rbx], dword 0
+    invlpg [rel stackguard]
 
     ; set up kernel stack
     mov rsp, stackend
 
     ; init phys allocator
-    mov rsi, [EARLY_MEMORY_MAP_LEN]
+    mov esi, [EARLY_MEMORY_MAP_LEN]
     mov rdi, EARLY_MEMORY_MAP
-    call phys_init_regions
+    call phys_init
 
     ; unmap low memory
     xor rax, rax
@@ -229,16 +234,16 @@ tss:
 
 section .bss
     align PAGE_SIZE
-    pml4    resb PAGE_SIZE
+    pml4        resb PAGE_SIZE
     ; early huge 4 MiB identity mapping to get us rolling:
-    pdpt_0  resb PAGE_SIZE
-    pd_0    resb PAGE_SIZE
+    pdpt_0      resb PAGE_SIZE
+    pd_0        resb PAGE_SIZE
     ; higher half kernel mapping tables:
-    pdpt_k  resb PAGE_SIZE
-    pd_k    resb PAGE_SIZE
-    pt_k    resb PAGE_SIZE
+    pdpt_k      resb PAGE_SIZE
+    pd_k        resb PAGE_SIZE
+    pt_k        resb PAGE_SIZE
 
-    memory_map      resb PAGE_SIZE
+    memory_map  resb PAGE_SIZE
 
     global temp_page
     temp_page   resb PAGE_SIZE

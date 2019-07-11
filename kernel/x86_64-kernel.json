@@ -17,6 +17,13 @@
     "code-model": "kernel",
 
     "pre-link-args": {
-        "ld": ["-T", "kernel/linker.ld", "target/x86_64-kernel/start.o", "target/x86_64-kernel/isrs.o", "target/x86_64-kernel/aux.o"]
+        "ld": [
+            "--no-relax",
+            "--orphan-handling=error",
+            "-T", "kernel/linker.ld",
+            "target/x86_64-kernel/start.o",
+            "target/x86_64-kernel/isrs.o",
+            "target/x86_64-kernel/aux.o"
+        ]
     }
 }
