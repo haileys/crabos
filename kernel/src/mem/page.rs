@@ -62,7 +62,7 @@ pub fn invlpg(virt: *mut u8) {
 
 // the existence of a reference to CriticalLock proves we're in a critical
 // section:
-pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> Result<*mut T, MapError> {
+pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> *mut T {
     let virt = &mut temp_page as *mut u8;
     let entry = pml1_entry(virt as u64);
 
@@ -73,7 +73,7 @@ pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> Result<*mut T,
     *entry = PmlEntry(phys.0 | (PageFlags::PRESENT | PageFlags::WRITE).bits());
     invlpg(virt);
 
-    Ok(virt as *mut T)
+    virt as *mut T
 }
 
 pub unsafe fn temp_unmap(_critical: &Critical) {

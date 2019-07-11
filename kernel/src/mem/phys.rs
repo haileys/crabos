@@ -137,6 +137,14 @@ pub unsafe extern "C" fn phys_init(bios_memory_map: *const BiosMemoryRegion, reg
     crate::println!();
 }
 
+unsafe fn zero_phys(phys: RawPhys) {
+    let crit = critical::begin();
+
+    let mapped = page::temp_map::<u64>(phys, &crit);
+    ptr::write_bytes(mapped, 0, PAGE_SIZE / mem::size_of::<u64>());
+    page::temp_unmap(&crit);
+}
+
 fn alloc_freelist() -> Option<Phys> {
     let crit = critical::begin();
 
@@ -144,13 +152,7 @@ fn alloc_freelist() -> Option<Phys> {
         if let Some(phys) = NEXT_FREE_PHYS.take() {
             let phys = Phys::new(phys);
 
-            let mapped = page::temp_map::<Option<RawPhys>>(RawPhys(phys.0), &crit)
-                // this should never fail:
-                //   - a temporary mapping should not exist on entry to
-                //     this function
-                //   - the page directory entry for the temporary page
-                //     should already exist
-                .expect("page::temp_map");
+            let mapped = page::temp_map::<Option<RawPhys>>(RawPhys(phys.0), &crit);
 
             // pull linked next free phys out:
             NEXT_FREE_PHYS = (*mapped).take();
@@ -180,9 +182,9 @@ fn alloc_new(regions: &mut [PhysRegion]) -> Result<Phys, MemoryExhausted> {
 
         unsafe {
             let crit = critical::begin();
-            let mapped = page::temp_map::<u8>(raw_phys, &crit)
-                .expect("page::temp_map");
-            ptr::write_bytes(mapped, 0, PAGE_SIZE);
+
+            let mapped = page::temp_map::<u64>(raw_phys, &crit);
+            ptr::write_bytes(mapped, 0, PAGE_SIZE / mem::size_of::<u64>());
             page::temp_unmap(&crit);
         }
 
