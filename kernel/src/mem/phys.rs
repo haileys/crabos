@@ -158,7 +158,7 @@ fn alloc_freelist() -> Option<Phys> {
             NEXT_FREE_PHYS = (*mapped).take();
 
             // zero page before returning:
-            ptr::write_bytes(mapped, 0, PAGE_SIZE);
+            ptr::write_bytes(mapped as *mut u64, 0, PAGE_SIZE / mem::size_of::<u64>());
 
             page::temp_unmap(&crit);
             Some(phys)
