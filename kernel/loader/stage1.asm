@@ -86,11 +86,27 @@ protected_mode:
     mov ecx, 80*25
     rep stosw
 
+    ; check if extended processor information is supported by cpuid
+    mov eax, 0x80000000
+    cpuid
+    mov esi, no_extended_processor_information
+    cmp eax, 0x80000001
+    jb error
+
+    ; check if long mode is supported
+    mov eax, 0x80000001
+    cpuid
+    mov esi, no_long_mode
+    test edx, 1 << 29
+    jz error
+
     ; jump to stage 2 and reload code segment
     jmp stage2
 
-could_not_enable_a20 db "could not enable A20 line", 0
-could_not_read_memory_map db "could not read memory map from BIOS", 0
+could_not_enable_a20 db "Could not enable A20 line", 0
+could_not_read_memory_map db "Could not read memory map from BIOS", 0
+no_extended_processor_information db "No extended processor information - 64 bit mode not supported on this CPU", 0
+no_long_mode db "No long mode - 64 bit mode not supported on this CPU", 0
 
 gdtr32:
     dw (gdt32.end - gdt32) - 1 ; size
