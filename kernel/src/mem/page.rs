@@ -52,6 +52,49 @@ unsafe fn pml1_entry(virt: u64) -> *mut PmlEntry {
     base.add(((virt >> 12) & 0xfffffffff) as usize)
 }
 
+/// recursively iterates PML4 yielding raw physical pages
+pub unsafe fn each_phys(mut f: impl FnMut(RawPhys)) {
+    use x86_64::registers::control::Cr3;
+    f(RawPhys(Cr3::read().0.start_address().as_u64()));
+
+    // skip recursive map entry
+    for pml4_idx in 0..511 {
+        let base = 0xfffffffffffff000 as *mut PmlEntry;
+        let entry = &*base.add(pml4_idx);
+
+        if let Some(phys) = entry.raw_phys() {
+            f(phys);
+
+            for pml3_idx in 0..512 {
+                let base = 0xffffffffffe00000 as *mut PmlEntry;
+                let entry = &*base.add((pml4_idx << 9) | pml3_idx);
+
+                if let Some(phys) = entry.raw_phys() {
+                    f(phys);
+
+                    for pml2_idx in 0..512 {
+                        let base = 0xffffffffc0000000 as *mut PmlEntry;
+                        let entry = &*base.add((pml4_idx << 18) | (pml3_idx << 9) | pml2_idx);
+
+                        if let Some(phys) = entry.raw_phys() {
+                            f(phys);
+
+                            for pml1_idx in 0..512 {
+                                let base = 0xffffff8000000000 as *mut PmlEntry;
+                                let entry = &*base.add((pml4_idx << 27) | (pml3_idx << 18) | (pml2_idx << 9) | pml1_idx);
+
+                                if let Some(phys) = entry.raw_phys() {
+                                    f(phys);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 extern "C" {
     static mut temp_page: u8;
 }
