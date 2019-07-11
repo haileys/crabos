@@ -14,7 +14,7 @@ extern "C" {
 
 static REF_COUNT_ENABLED: AtomicBool = AtomicBool::new(false);
 static PHYS_REGIONS: Mutex<Option<[PhysRegion; 8]>> = Mutex::new(None);
-static mut NEXT_FREE_PHYS: Option<RawPhys> = None;
+static NEXT_FREE_PHYS: Mutex<Option<RawPhys>> = Mutex::new(None);
 
 const REGION_KIND_USABLE: u32 = 1;
 const HIGH_MEMORY_BOUNDARY: RawPhys = RawPhys(0x100000);
@@ -83,26 +83,26 @@ pub struct BiosMemoryRegion {
 }
 
 fn alloc_freelist() -> Option<Phys> {
-    let crit = critical::begin();
+    let mut next_free = NEXT_FREE_PHYS.lock();
 
-    unsafe {
-        if let Some(phys) = NEXT_FREE_PHYS.take() {
+    next_free.take().map(|phys| {
+        unsafe {
+            let crit = critical::begin();
             let phys = Phys::new(phys);
+
             let mapped = page::temp_map::<Option<RawPhys>>(RawPhys(phys.0), &crit);
 
             // pull linked next free phys out:
-            NEXT_FREE_PHYS = (*mapped).take();
+            *next_free = (*mapped).take();
 
             // zero page before returning:
             ptr::write_bytes(mapped as *mut u64, 0, PAGE_SIZE / mem::size_of::<u64>());
 
             page::temp_unmap(&crit);
 
-            Some(phys)
-        } else {
-            None
+            phys
         }
-    }
+    })
 }
 
 fn alloc_new(regions: &mut [PhysRegion]) -> Result<Phys, MemoryExhausted> {
@@ -146,15 +146,16 @@ impl Drop for Phys {
         match dec_ref(RawPhys(self.0)) {
             PhysStatus::InUse => {}
             PhysStatus::ShouldFree => {
-                let crit = critical::begin();
+                let mut next_free = NEXT_FREE_PHYS.lock();
 
                 unsafe {
+                    let crit = critical::begin();
                     let link = page::temp_map::<Option<RawPhys>>(RawPhys(self.0), &crit);
-                    ptr::write(link, NEXT_FREE_PHYS.take());
+                    ptr::write(link, next_free.take());
                     page::temp_unmap(&crit);
-
-                    NEXT_FREE_PHYS = Some(RawPhys(self.0));
                 }
+
+                *next_free = Some(RawPhys(self.0));
             }
         }
     }
