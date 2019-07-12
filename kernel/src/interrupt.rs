@@ -1,3 +1,5 @@
+use core::convert::TryFrom;
+
 use x86_64::instructions::port::Port;
 use x86_64::registers::control::Cr2;
 
@@ -60,6 +62,7 @@ interrupts! {
     0x13 => SimdException,
     0x14 => VirtualizationException,
     0x1e => SecurityException,
+    0x7f => Syscall,
 }
 
 #[repr(C)]
@@ -110,7 +113,7 @@ impl TrapFrame {
 }
 
 #[no_mangle]
-pub extern "C" fn interrupt(frame: &TrapFrame) {
+pub extern "C" fn interrupt(frame: &mut TrapFrame) {
     // crate::println!("{:#x?}", frame);
 
     match frame.interrupt() {
@@ -146,6 +149,17 @@ pub extern "C" fn interrupt(frame: &TrapFrame) {
             let address = Cr2::read().as_ptr();
 
             fault(frame, flags, address);
+        }
+        Interrupt::Syscall => {
+            match char::try_from(frame.regs.rax as u32) {
+                Ok(c) => {
+                    crate::print!("{}", c);
+                    frame.regs.rax = 0;
+                }
+                Err(_) => {
+                    frame.regs.rax = 1;
+                }
+            }
         }
         Interrupt::Other(vector) => {
             panic!("unexpected interrupt: {:#2x}", vector);

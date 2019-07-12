@@ -2,7 +2,12 @@ BUILD?=debug
 
 KERNEL_ELF=target/x86_64-kernel/$(BUILD)/kernel
 KERNEL_BIN=target/x86_64-kernel/$(BUILD)/kernel.bin
-KERNEL_OBJS=target/x86_64-kernel/start.o target/x86_64-kernel/isrs.o target/x86_64-kernel/aux.o
+KERNEL_OBJS=\
+	target/x86_64-kernel/start.o \
+	target/x86_64-kernel/isrs.o \
+	target/x86_64-kernel/aux.o \
+	target/x86_64-kernel/userland/init.bin \
+
 ifeq ($(BUILD),release)
 CARGO_FLAGS=--release
 endif
@@ -40,3 +45,7 @@ target/loader/stage1.bin: kernel/loader/stage1.asm kernel/src/consts.asm
 target/x86_64-kernel/%.o: kernel/src/%.asm kernel/src/consts.asm target/loader/stage1.bin
 	mkdir -p target/x86_64-kernel
 	nasm -f elf64 -o $@ $<
+
+target/x86_64-kernel/%.bin: kernel/src/%.asm
+	mkdir -p $$(dirname '$@')
+	nasm -f bin -o $@ $<

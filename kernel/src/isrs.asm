@@ -20,6 +20,7 @@ isrs_init:
     ; build IDT:
     %define IDT_PRESENT 0x8000
     %define IDT_INT64   0x0e00
+    %define IDT_DPL3    0x6000
 
     ; ENTRY(vector, offset, segment, flags)
     %macro ENTRY 4
@@ -88,6 +89,8 @@ isrs_init:
     ENTRY 0x2e, irq14,                      SEG_KCODE, IDT_PRESENT | IDT_INT64
     ENTRY 0x2f, irq15,                      SEG_KCODE, IDT_PRESENT | IDT_INT64
 
+    ENTRY 0x7f, syscall_,                   SEG_KCODE, IDT_PRESENT | IDT_INT64 | IDT_DPL3
+
     ; load IDT
     lidt [rel idtr]
     ret
@@ -115,6 +118,8 @@ DISPATCH_0 0x2c, irq12
 DISPATCH_0 0x2d, irq13
 DISPATCH_0 0x2e, irq14
 ; DISPATCH_0 0x2f, irq15
+
+DISPATCH_0 0x7f, syscall_
 
 interrupt_common:
     ; TODO - check SS and other seg regs

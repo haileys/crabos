@@ -45,7 +45,7 @@ pub extern "C" fn main() -> ! {
         device::pit::init();
     }
 
-    let user_bin = [0xeb, 0xfe];
+    let user_bin = include_bytes!("../../target/x86_64-kernel/userland/init.bin");
     let user_addr = 0x1_0000_0000 as *mut u8;
 
     unsafe {
