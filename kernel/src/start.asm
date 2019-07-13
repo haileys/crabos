@@ -180,8 +180,8 @@ higher_half:
     ; initialize interrupts
     call isrs_init
 
-    ; enable interrupts
-    sti
+    ; interrupts are disabled for main, but enabled as soon as task::start
+    ; irets to first task
 
     push 0
     jmp main

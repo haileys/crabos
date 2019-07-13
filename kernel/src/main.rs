@@ -46,17 +46,28 @@ pub extern "C" fn main() -> ! {
         device::pit::init();
     }
 
-    let user_bin = include_bytes!("../../target/x86_64-kernel/userland/init.bin");
-    let user_addr = 0x1_0000_0000 as *mut u8;
+    let a_bin = include_bytes!("../../target/x86_64-kernel/userland/a.bin");
+    let a_addr = 0x1_0000_0000 as *mut u8;
+
+    let b_bin = include_bytes!("../../target/x86_64-kernel/userland/b.bin");
+    let b_addr = 0x1_0000_1000 as *mut u8;
 
     unsafe {
         let phys = phys::alloc()
             .expect("phys::alloc");
 
-        page::map(phys, user_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
+        page::map(phys, a_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
             .expect("page::map");
 
-        ptr::copy(user_bin.as_ptr(), user_addr, user_bin.len());
+        ptr::copy(a_bin.as_ptr(), a_addr, a_bin.len());
+
+        let phys = phys::alloc()
+            .expect("phys::alloc");
+
+        page::map(phys, b_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
+            .expect("page::map");
+
+        ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
 
         task::start();
     }

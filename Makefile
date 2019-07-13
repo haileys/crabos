@@ -6,7 +6,8 @@ KERNEL_OBJS=\
 	target/x86_64-kernel/start.o \
 	target/x86_64-kernel/isrs.o \
 	target/x86_64-kernel/aux.o \
-	target/x86_64-kernel/userland/init.bin \
+	target/x86_64-kernel/userland/a.bin \
+	target/x86_64-kernel/userland/b.bin \
 
 ifeq ($(BUILD),release)
 CARGO_FLAGS=--release
