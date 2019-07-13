@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+use x86_64::registers::control::Cr3;
 
 use crate::critical::{self, Critical};
 use crate::mem::phys::{self, Phys, RawPhys, MemoryExhausted};
@@ -32,6 +33,30 @@ bitflags! {
     }
 }
 
+#[derive(Clone)]
+pub struct Pml4 {
+    phys: Phys,
+}
+
+pub fn pml4() -> Pml4 {
+    let cr3;
+    unsafe { asm!("movq %cr3, $0" : "=r"(cr3)); }
+
+    let phys = unsafe { Phys::new(cr3) };
+    Pml4 { phys }
+}
+
+pub unsafe fn set_pml4(pml4: Pml4) {
+    let old_cr3;
+    asm!("movq %cr3, $0" : "=r"(old_cr3));
+
+    let new_cr3 = pml4.phys.into_raw();
+    asm!("movq $0, %cr3" :: "r"(new_cr3));
+
+    // ensure we decrement the ref count of the old previous cr3
+    Phys::from_raw(old_cr3);
+}
+
 unsafe fn pml4_entry(virt: u64) -> *mut PmlEntry {
     let base = 0xfffffffffffff000 as *mut PmlEntry;
     base.add(((virt >> 39) & 0x1ff) as usize)
@@ -54,7 +79,6 @@ unsafe fn pml1_entry(virt: u64) -> *mut PmlEntry {
 
 /// recursively iterates PML4 yielding raw physical pages
 pub unsafe fn each_phys(mut f: impl FnMut(RawPhys)) {
-    use x86_64::registers::control::Cr3;
     f(RawPhys(Cr3::read().0.start_address().as_u64()));
 
     // skip recursive map entry

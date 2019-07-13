@@ -2,6 +2,9 @@ use core::convert::TryFrom;
 
 use x86_64::instructions::port::Port;
 use x86_64::registers::control::Cr2;
+use x86_64::registers::rflags::RFlags;
+
+use crate::task::{SEG_UCODE, SEG_UDATA};
 
 pub const IRQ_BASE: u8 = 0x20;
 
@@ -66,7 +69,7 @@ interrupts! {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct Registers {
     // general purpose registers, see isrs.asm
     pub r15: u64,
@@ -90,7 +93,7 @@ pub struct Registers {
 }
 
 #[repr(C)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TrapFrame {
     pub regs: Registers,
 
@@ -104,6 +107,21 @@ pub struct TrapFrame {
     pub rflags: u64,
     pub rsp: u64,
     pub ss: u64,
+}
+
+impl TrapFrame {
+    pub fn new(rip: u64, rsp: u64) -> Self {
+        TrapFrame {
+            regs: Default::default(),
+            interrupt_vector: 0,
+            error_code: 0,
+            rip: rip,
+            cs: SEG_UCODE as u64,
+            rflags: RFlags::INTERRUPT_FLAG.bits(),
+            rsp: rsp,
+            ss: SEG_UDATA as u64,
+        }
+    }
 }
 
 impl TrapFrame {

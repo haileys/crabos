@@ -32,7 +32,7 @@ pub struct Phys(u64);
 impl Phys {
     /// Creates a new Phys, incrementing the reference count of the underlying
     /// physical page by one
-    unsafe fn new(raw_phys: RawPhys) -> Phys {
+    pub unsafe fn new(raw_phys: RawPhys) -> Phys {
         inc_ref(raw_phys);
         Phys(raw_phys.0)
     }

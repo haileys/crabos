@@ -1,6 +1,7 @@
 bits 64
 
 global isrs_init
+global interrupt_return
 extern panic
 extern interrupt
 
@@ -152,6 +153,7 @@ interrupt_common:
     mov rdi, rsp
     call interrupt
 
+interrupt_return:
     ; pop general purpose registers
     pop r15
     pop r14
@@ -291,7 +293,7 @@ irq7:
 .spurious:
     ; ignore it otherwise
     pop ax
-    iret
+    iretq
 
 ; ATA2/spurious
 irq15:
@@ -311,7 +313,7 @@ irq15:
 .spurious:
     ; ignore it otherwise
     pop ax
-    iret
+    iretq
 
 section .data
 align 4

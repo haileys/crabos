@@ -17,6 +17,7 @@ mod interrupt;
 mod mem;
 mod panic;
 mod sync;
+mod task;
 
 use core::ptr;
 
@@ -57,18 +58,6 @@ pub extern "C" fn main() -> ! {
 
         ptr::copy(user_bin.as_ptr(), user_addr, user_bin.len());
 
-        asm!(r#"
-            push $$0x23
-            push $$0x0
-            pushf
-            push $$0x1b
-            push $0
-            iretq
-        "#
-            :: "r"(user_addr)
-            :: "volatile"
-        );
+        task::start();
     }
-
-    loop {}
 }
