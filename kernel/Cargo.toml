@@ -6,4 +6,5 @@ edition = "2018"
 
 [dependencies]
 bitflags = "1.0"
+static_assertions = "0.3"
 x86_64 = "0.7"
