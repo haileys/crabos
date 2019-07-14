@@ -34,23 +34,39 @@ bitflags! {
 }
 
 #[derive(Clone)]
-pub struct Pml4 {
-    phys: Phys,
+pub struct PageCtx {
+    pml4: Phys,
 }
 
-pub fn pml4() -> Pml4 {
+impl PageCtx {
+    pub fn new() -> Result<Self, MemoryExhausted> {
+        let pml4_raw = phys::alloc()?.into_raw();
+
+        unsafe {
+            let crit = critical::begin();
+            let pml4_map = temp_map::<PmlEntry>(pml4_raw, &crit);
+            ptr::copy(0xfffffffffffff800 as *const PmlEntry, pml4_map, 256);
+            temp_unmap(&crit);
+        }
+
+        let pml4 = unsafe { Phys::from_raw(pml4_raw) };
+        Ok(PageCtx { pml4 })
+    }
+}
+
+pub fn current_ctx() -> PageCtx {
     let cr3;
     unsafe { asm!("movq %cr3, $0" : "=r"(cr3)); }
 
-    let phys = unsafe { Phys::new(cr3) };
-    Pml4 { phys }
+    let pml4 = unsafe { Phys::new(cr3) };
+    PageCtx { pml4 }
 }
 
-pub unsafe fn set_pml4(pml4: Pml4) {
+pub unsafe fn set_ctx(ctx: PageCtx) {
     let old_cr3;
     asm!("movq %cr3, $0" : "=r"(old_cr3));
 
-    let new_cr3 = pml4.phys.into_raw();
+    let new_cr3 = ctx.pml4.into_raw();
     asm!("movq $0, %cr3" :: "r"(new_cr3));
 
     // ensure we decrement the ref count of the old previous cr3

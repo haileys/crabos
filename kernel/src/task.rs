@@ -1,5 +1,5 @@
 use crate::interrupt::TrapFrame;
-use crate::page::{self, Pml4};
+use crate::page::{self, PageCtx};
 use crate::sync::Mutex;
 
 pub const SEG_UCODE: u16 = 0x1b;
@@ -7,7 +7,7 @@ pub const SEG_UDATA: u16 = 0x23;
 
 pub struct Task {
     frame: TrapFrame,
-    pml4: Pml4,
+    page_ctx: PageCtx,
 }
 
 pub struct Tasks {
@@ -46,12 +46,12 @@ pub unsafe fn start() -> ! {
 
         tasks.tasks[0] = Some(Task {
             frame: frame.clone(),
-            pml4: page::pml4(),
+            page_ctx: page::current_ctx(),
         });
 
         tasks.tasks[1] = Some(Task {
             frame: TrapFrame::new(0x1_0000_1000, 0x0),
-            pml4: page::pml4(),
+            page_ctx: page::current_ctx(),
         })
     }
 
