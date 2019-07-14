@@ -1,6 +1,8 @@
 enum64! {
     enum Syscall {
         1   => AllocPage,
+        2   => ReleasePage,
+        3   => ModifyPage,
     }
 }
 

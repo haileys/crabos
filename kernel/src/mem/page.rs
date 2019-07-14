@@ -25,6 +25,11 @@ impl PmlEntry {
     pub fn flags(&self) -> PageFlags {
         PageFlags::from_bits(self.0 & 0xfff).expect("PageFlags::from_bits in PmlEntry::flags")
     }
+
+    pub fn set_flags(&mut self, flags: PageFlags) {
+        let new_entry = (self.0 & !0xfff) | flags.bits();
+        self.0 = new_entry;
+    }
 }
 
 bitflags! {
@@ -313,6 +318,16 @@ pub unsafe fn unmap(virt: *mut u8) -> Result<(), NotMapped> {
         }
     }
 }
+
+pub unsafe fn modify(virt: *mut u8, flags: PageFlags) -> Result<(), NotMapped> {
+    let crit = critical::begin();
+
+    let pml1_ent = checked_pml1_entry(virt, &crit)?;
+    (*pml1_ent).set_flags(flags);
+
+    Ok(())
+}
+
 
 pub fn virt_to_phys(virt: *mut u8) -> Result<Phys, NotMapped> {
     let crit = critical::begin();
