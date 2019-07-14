@@ -17,6 +17,7 @@ mod interrupt;
 mod mem;
 mod panic;
 mod sync;
+mod syscall;
 mod task;
 
 use core::ptr;

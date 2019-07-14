@@ -29,10 +29,15 @@ version = "1.0.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "interface"
+version = "0.0.0"
+
+[[package]]
 name = "kernel"
 version = "0.0.0"
 dependencies = [
  "bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "interface 0.0.0",
  "static_assertions 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "x86_64 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

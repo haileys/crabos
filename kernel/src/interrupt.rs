@@ -1,10 +1,9 @@
-use core::convert::TryFrom;
-
 use x86_64::instructions::port::Port;
 use x86_64::registers::control::Cr2;
 use x86_64::registers::rflags::RFlags;
 
 use crate::task::{self, SEG_UCODE, SEG_UDATA};
+use crate::syscall;
 
 pub const IRQ_BASE: u8 = 0x20;
 
@@ -169,15 +168,7 @@ pub extern "C" fn interrupt(frame: &mut TrapFrame) {
             fault(frame, flags, address);
         }
         Interrupt::Syscall => {
-            match char::try_from(frame.regs.rdx as u32) {
-                Ok(c) => {
-                    crate::print!("{}", c);
-                    frame.regs.rax = 0;
-                }
-                Err(_) => {
-                    frame.regs.rax = 1;
-                }
-            }
+            syscall::dispatch(frame);
         }
         Interrupt::Other(vector) => {
             panic!("unexpected interrupt: {:#2x}", vector);

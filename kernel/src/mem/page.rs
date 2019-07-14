@@ -1,3 +1,5 @@
+use core::ptr;
+
 use bitflags::bitflags;
 use x86_64::registers::control::Cr3;
 
@@ -7,7 +9,7 @@ use crate::mem::phys::{self, Phys, RawPhys, MemoryExhausted};
 pub const PAGE_SIZE: usize = 0x1000;
 
 #[repr(transparent)]
-struct PmlEntry(u64);
+pub struct PmlEntry(pub u64);
 
 impl PmlEntry {
     fn raw_phys(&self) -> Option<RawPhys> {
@@ -250,42 +252,76 @@ pub unsafe fn map(phys: Phys, virt: *mut u8, flags: PageFlags) -> Result<(), Map
 }
 
 #[derive(Debug)]
-pub enum UnmapError {
-    NotMapped,
-}
+pub struct NotMapped;
 
-pub unsafe fn unmap(virt: *mut u8) -> Result<(), UnmapError> {
+fn checked_pml1_entry(virt: *mut u8, _crit: &Critical) -> Result<*mut PmlEntry, NotMapped> {
     critical::section(|| {
-        let virt = virt as u64;
+        unsafe {
+            let virt = virt as u64;
 
-        let pml4_ent = pml4_entry(virt);
-        let pml3_ent = pml3_entry(virt);
-        let pml2_ent = pml2_entry(virt);
-        let pml1_ent = pml1_entry(virt);
+            let pml4_ent = pml4_entry(virt);
+            let pml3_ent = pml3_entry(virt);
+            let pml2_ent = pml2_entry(virt);
+            let pml1_ent = pml1_entry(virt);
 
-        if (*pml4_ent).0 == 0 {
-            return Err(UnmapError::NotMapped);
-        }
-
-        if (*pml3_ent).0 == 0 {
-            return Err(UnmapError::NotMapped);
-        }
-
-        if (*pml2_ent).0 == 0 {
-            return Err(UnmapError::NotMapped);
-        }
-
-        match (*pml1_ent).raw_phys() {
-            Some(raw_phys) => {
-                // ensure we decrement the ref count of the physical page:
-                Phys::from_raw(raw_phys);
-                *pml1_ent = PmlEntry(0);
-                invlpg(virt as *mut u8);
-                Ok(())
+            if (*pml4_ent).0 == 0 {
+                return Err(NotMapped);
             }
-            None => {
-                Err(UnmapError::NotMapped)
+
+            if (*pml3_ent).0 == 0 {
+                return Err(NotMapped);
             }
+
+            if (*pml2_ent).0 == 0 {
+                return Err(NotMapped);
+            }
+
+            if (*pml1_ent).0 == 0 {
+                return Err(NotMapped);
+            }
+
+            Ok(pml1_ent)
         }
     })
+}
+
+pub fn entry(virt: *mut u8, _crit: &Critical) -> Result<&PmlEntry, NotMapped> {
+    let entry = checked_pml1_entry(virt, _crit)?;
+
+    // Safety(UNSAFE): ref lifetime is tied to critical section lifetime.
+    // This could result in bad memory access if the page tables are mutated
+    // by the kernel while this critical section is held, but importantly at
+    // least protects us from concurrent modification by other processes.
+    unsafe { Ok(&*entry) }
+}
+
+pub unsafe fn unmap(virt: *mut u8) -> Result<(), NotMapped> {
+    let crit = critical::begin();
+
+    let pml1_ent = checked_pml1_entry(virt, &crit)?;
+
+    match (*pml1_ent).raw_phys() {
+        Some(raw_phys) => {
+            // ensure we decrement the ref count of the physical page:
+            Phys::from_raw(raw_phys);
+            *pml1_ent = PmlEntry(0);
+            invlpg(virt as *mut u8);
+            Ok(())
+        }
+        None => {
+            Err(NotMapped)
+        }
+    }
+}
+
+pub fn virt_to_phys(virt: *mut u8) -> Result<Phys, NotMapped> {
+    let crit = critical::begin();
+
+    unsafe {
+        let pml1_ent = checked_pml1_entry(virt, &crit)?;
+
+        (*pml1_ent).raw_phys()
+            .map(|raw_phys| Phys::new(raw_phys))
+            .ok_or(NotMapped)
+    }
 }

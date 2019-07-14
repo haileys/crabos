@@ -8,3 +8,4 @@ edition = "2018"
 bitflags = "1.0"
 static_assertions = "0.3"
 x86_64 = "0.7"
+interface = { path = "../interface" }
