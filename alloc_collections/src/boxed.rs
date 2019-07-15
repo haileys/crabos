@@ -22,11 +22,11 @@ pub struct Box<T, Allocator: GlobalAlloc> {
 }
 
 impl<T, Allocator: GlobalAlloc> Box<T, Allocator> {
-    pub fn new(value: T) -> Self {
-        Box {
-            ptr: alloc::<T, Allocator>(value).expect("TODO ?"),
+    pub fn new(value: T) -> Result<Self, AllocErr> {
+        Ok(Box {
+            ptr: alloc::<T, Allocator>(value)?,
             _phantom: PhantomData,
-        }
+        })
     }
 
     pub fn into_raw(b: Box<T, Allocator>) -> *mut T {

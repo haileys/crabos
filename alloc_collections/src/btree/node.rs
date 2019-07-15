@@ -63,7 +63,7 @@ use core::slice;
 use core::alloc::Layout;
 use crate::boxed::Box;
 
-use crate::glue::GlobalAlloc;
+use crate::glue::{AllocResult, GlobalAlloc};
 
 const B: usize = 6;
 pub const MIN_LEN: usize = B - 1;
@@ -247,12 +247,12 @@ impl<K, V, Allocator: GlobalAlloc> Root<K, V, Allocator> {
         }
     }
 
-    pub fn new_leaf() -> Self {
-        Root {
-            node: BoxedNode::from_leaf(Box::new(unsafe { LeafNode::new() })),
+    pub fn new_leaf() -> AllocResult<Self> {
+        Ok(Root {
+            node: BoxedNode::from_leaf(Box::new(unsafe { LeafNode::new() })?),
             height: 0,
             _alloc: PhantomData,
-        }
+        })
     }
 
     pub fn as_ref(&self)
@@ -288,9 +288,9 @@ impl<K, V, Allocator: GlobalAlloc> Root<K, V, Allocator> {
     /// Adds a new internal node with a single edge, pointing to the previous root, and make that
     /// new node the root. This increases the height by 1 and is the opposite of `pop_level`.
     pub fn push_level(&mut self)
-            -> NodeRef<marker::Mut<'_>, K, V, marker::Internal, Allocator> {
+            -> AllocResult<NodeRef<marker::Mut<'_>, K, V, marker::Internal, Allocator>> {
         debug_assert!(!self.is_shared_root());
-        let mut new_node = Box::new(unsafe { InternalNode::new() });
+        let mut new_node = Box::new(unsafe { InternalNode::new() })?;
         new_node.edges[0].write(unsafe { BoxedNode::from_ptr(self.node.as_ptr()) });
 
         self.node = BoxedNode::from_internal(new_node);
@@ -307,7 +307,7 @@ impl<K, V, Allocator: GlobalAlloc> Root<K, V, Allocator> {
             ret.reborrow_mut().first_edge().correct_parent_link();
         }
 
-        ret
+        Ok(ret)
     }
 
     /// Removes the root node, using its first child as the new root. This cannot be called when
@@ -1082,14 +1082,14 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
     ///
     /// The returned pointer points to the inserted value.
     pub fn insert(mut self, key: K, val: V)
-            -> (InsertResult<'a, K, V, marker::Leaf, Allocator>, *mut V) {
+            -> AllocResult<(InsertResult<'a, K, V, marker::Leaf, Allocator>, *mut V)> {
 
         if self.node.len() < CAPACITY {
             let ptr = self.insert_fit(key, val);
-            (InsertResult::Fit(Handle::new_kv(self.node, self.idx)), ptr)
+            Ok((InsertResult::Fit(Handle::new_kv(self.node, self.idx)), ptr))
         } else {
             let middle = Handle::new_kv(self.node, B);
-            let (mut left, k, v, mut right) = middle.split();
+            let (mut left, k, v, mut right) = middle.split()?;
             let ptr = if self.idx <= B {
                 unsafe {
                     Handle::new_edge(left.reborrow_mut(), self.idx).insert_fit(key, val)
@@ -1102,7 +1102,7 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
                     ).insert_fit(key, val)
                 }
             };
-            (InsertResult::Split(left, k, v, right), ptr)
+            Ok((InsertResult::Split(left, k, v, right), ptr))
         }
     }
 }
@@ -1159,17 +1159,17 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
     /// between this edge and the key/value pair to the right of this edge. This method splits
     /// the node if there isn't enough room.
     pub fn insert(mut self, key: K, val: V, edge: Root<K, V, Allocator>)
-            -> InsertResult<'a, K, V, marker::Internal, Allocator> {
+            -> AllocResult<InsertResult<'a, K, V, marker::Internal, Allocator>> {
 
         // Necessary for correctness, but this is an internal module
         debug_assert!(edge.height == self.node.height - 1);
 
         if self.node.len() < CAPACITY {
             self.insert_fit(key, val, edge);
-            InsertResult::Fit(Handle::new_kv(self.node, self.idx))
+            Ok(InsertResult::Fit(Handle::new_kv(self.node, self.idx)))
         } else {
             let middle = Handle::new_kv(self.node, B);
-            let (mut left, k, v, mut right) = middle.split();
+            let (mut left, k, v, mut right) = middle.split()?;
             if self.idx <= B {
                 unsafe {
                     Handle::new_edge(left.reborrow_mut(), self.idx).insert_fit(key, val, edge);
@@ -1182,7 +1182,7 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
                     ).insert_fit(key, val, edge);
                 }
             }
-            InsertResult::Split(left, k, v, right)
+            Ok(InsertResult::Split(left, k, v, right))
         }
     }
 }
@@ -1246,10 +1246,10 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
     /// - All the key/value pairs to the right of this handle are put into a newly
     ///   allocated node.
     pub fn split(mut self)
-            -> (NodeRef<marker::Mut<'a>, K, V, marker::Leaf, Allocator>, K, V, Root<K, V, Allocator>) {
+            -> AllocResult<(NodeRef<marker::Mut<'a>, K, V, marker::Leaf, Allocator>, K, V, Root<K, V, Allocator>)> {
         debug_assert!(!self.node.is_shared_root());
         unsafe {
-            let mut new_node = Box::new(LeafNode::new());
+            let mut new_node = Box::new(LeafNode::new())?;
 
             let k = ptr::read(self.node.keys().get_unchecked(self.idx));
             let v = ptr::read(self.node.vals().get_unchecked(self.idx));
@@ -1270,7 +1270,7 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
             (*self.node.as_leaf_mut()).len = self.idx as u16;
             new_node.len = new_len as u16;
 
-            (
+            Ok((
                 self.node,
                 k, v,
                 Root {
@@ -1278,7 +1278,7 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
                     height: 0,
                     _alloc: PhantomData,
                 }
-            )
+            ))
         }
     }
 
@@ -1305,9 +1305,9 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
     /// - All the edges and key/value pairs to the right of this handle are put into
     ///   a newly allocated node.
     pub fn split(mut self)
-            -> (NodeRef<marker::Mut<'a>, K, V, marker::Internal, Allocator>, K, V, Root<K, V, Allocator>) {
+            -> AllocResult<(NodeRef<marker::Mut<'a>, K, V, marker::Internal, Allocator>, K, V, Root<K, V, Allocator>)> {
         unsafe {
-            let mut new_node = Box::new(InternalNode::new());
+            let mut new_node = Box::new(InternalNode::new())?;
 
             let k = ptr::read(self.node.keys().get_unchecked(self.idx));
             let v = ptr::read(self.node.vals().get_unchecked(self.idx));
@@ -1344,11 +1344,11 @@ impl<'a, K, V, Allocator: GlobalAlloc> Handle<NodeRef<marker::Mut<'a>, K, V, mar
                 Handle::new_edge(new_root.as_mut().cast_unchecked(), i).correct_parent_link();
             }
 
-            (
+            Ok((
                 self.node,
                 k, v,
                 new_root
-            )
+            ))
         }
     }
 

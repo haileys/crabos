@@ -35,7 +35,7 @@ use core::{fmt, intrinsics, mem, ptr};
 use super::node::{self, Handle, NodeRef, marker, InsertResult::*, ForceResult::*};
 use super::search::{self, SearchResult::*};
 
-use crate::glue::GlobalAlloc;
+use crate::glue::{AllocResult, GlobalAlloc};
 
 use UnderflowResult::*;
 use Entry::*;
@@ -158,17 +158,17 @@ unsafe impl<#[may_dangle] K, #[may_dangle] V, Allocator: GlobalAlloc> Drop for B
     }
 }
 
-impl<K: Clone, V: Clone, Allocator: GlobalAlloc> Clone for BTreeMap<K, V, Allocator> {
-    fn clone(&self) -> BTreeMap<K, V, Allocator> {
+impl<K: Clone, V: Clone, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
+    fn clone(&self) -> AllocResult<BTreeMap<K, V, Allocator>> {
         fn clone_subtree<'a, K: Clone, V: Clone, Allocator: GlobalAlloc>(
             node: node::NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal, Allocator>
-        ) -> BTreeMap<K, V, Allocator>
+        ) -> AllocResult<BTreeMap<K, V, Allocator>>
         where K: 'a, V: 'a,
         {
             match node.force() {
                 Leaf(leaf) => {
                     let mut out_tree = BTreeMap {
-                        root: node::Root::new_leaf(),
+                        root: node::Root::new_leaf()?,
                         length: 0,
                     };
 
@@ -188,13 +188,13 @@ impl<K: Clone, V: Clone, Allocator: GlobalAlloc> Clone for BTreeMap<K, V, Alloca
                         }
                     }
 
-                    out_tree
+                    Ok(out_tree)
                 }
                 Internal(internal) => {
-                    let mut out_tree = clone_subtree(internal.first_edge().descend());
+                    let mut out_tree = clone_subtree(internal.first_edge().descend())?;
 
                     {
-                        let mut out_node = out_tree.root.push_level();
+                        let mut out_node = out_tree.root.push_level()?;
                         let mut in_edge = internal.first_edge();
                         while let Ok(kv) = in_edge.right_kv() {
                             let (k, v) = kv.into_kv();
@@ -202,7 +202,7 @@ impl<K: Clone, V: Clone, Allocator: GlobalAlloc> Clone for BTreeMap<K, V, Alloca
 
                             let k = (*k).clone();
                             let v = (*v).clone();
-                            let subtree = clone_subtree(in_edge.descend());
+                            let subtree = clone_subtree(in_edge.descend())?;
 
                             // We can't destructure subtree directly
                             // because BTreeMap implements Drop
@@ -218,7 +218,7 @@ impl<K: Clone, V: Clone, Allocator: GlobalAlloc> Clone for BTreeMap<K, V, Alloca
                         }
                     }
 
-                    out_tree
+                    Ok(out_tree)
                 }
             }
         }
@@ -226,10 +226,10 @@ impl<K: Clone, V: Clone, Allocator: GlobalAlloc> Clone for BTreeMap<K, V, Alloca
         if self.len() == 0 {
             // Ideally we'd call `BTreeMap::new` here, but that has the `K:
             // Ord` constraint, which this method lacks.
-            BTreeMap {
+            Ok(BTreeMap {
                 root: node::Root::shared_empty_root(),
                 length: 0,
-            }
+            })
         } else {
             clone_subtree(self.root.as_ref())
         }
@@ -894,7 +894,7 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
         }
     }
 
-    fn from_sorted_iter<I: Iterator<Item = (K, V)>>(&mut self, iter: I) {
+    fn from_sorted_iter<I: Iterator<Item = (K, V)>>(&mut self, iter: I) -> AllocResult<()> {
         self.ensure_root_is_owned();
         let mut cur_node = last_leaf_edge(self.root.as_mut()).into_node();
         // Iterate through all key-value pairs, pushing them into nodes at the right level.
@@ -921,7 +921,7 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
                         }
                         Err(node) => {
                             // We are at the top, create a new root node and push there.
-                            open_node = node.into_root_mut().push_level();
+                            open_node = node.into_root_mut().push_level()?;
                             break;
                         }
                     }
@@ -929,9 +929,9 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
 
                 // Push key-value pair and new right subtree.
                 let tree_height = open_node.height() - 1;
-                let mut right_tree = node::Root::new_leaf();
+                let mut right_tree = node::Root::new_leaf()?;
                 for _ in 0..tree_height {
-                    right_tree.push_level();
+                    right_tree.push_level()?;
                 }
                 open_node.push(key, value, right_tree);
 
@@ -941,6 +941,7 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
 
             self.length += 1;
         }
+        Ok(())
     }
 
     fn fix_right_edge(&mut self) {
@@ -994,17 +995,17 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
     /// assert_eq!(b[&17], "d");
     /// assert_eq!(b[&41], "e");
     /// ```
-    pub fn split_off<Q: ?Sized + Ord>(&mut self, key: &Q) -> Self
+    pub fn split_off<Q: ?Sized + Ord>(&mut self, key: &Q) -> AllocResult<Self>
         where K: Borrow<Q>
     {
         if self.is_empty() {
-            return Self::new();
+            return Ok(Self::new());
         }
 
         let total_num = self.len();
 
         let mut right = Self::new();
-        right.root = node::Root::new_leaf();
+        right.root = node::Root::new_leaf()?;
         for _ in 0..(self.root.as_ref().height()) {
             right.root.push_level();
         }
@@ -1048,7 +1049,7 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
             self.length = total_num - right.len();
         }
 
-        right
+        Ok(right)
     }
 
     /// Calculates the number of elements if it is incorrect.
@@ -1145,10 +1146,11 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
     }
 
     /// If the root node is the shared root node, allocate our own node.
-    fn ensure_root_is_owned(&mut self) {
+    fn ensure_root_is_owned(&mut self) -> AllocResult<()> {
         if self.root.is_shared_root() {
-            self.root = node::Root::new_leaf();
+            self.root = node::Root::new_leaf()?;
         }
+        Ok(())
     }
 }
 impl<'a, K: 'a, V: 'a, Allocator: GlobalAlloc> IntoIterator for &'a BTreeMap<K, V, Allocator> {
@@ -2016,9 +2018,9 @@ impl<'a, K: Ord, V, Allocator: GlobalAlloc> Entry<'a, K, V, Allocator> {
     ///
     /// assert_eq!(map["poneyland"], 12);
     /// ```
-    pub fn or_insert(self, default: V) -> &'a mut V {
+    pub fn or_insert(self, default: V) -> AllocResult<&'a mut V> {
         match self {
-            Occupied(entry) => entry.into_mut(),
+            Occupied(entry) => Ok(entry.into_mut()),
             Vacant(entry) => entry.insert(default),
         }
     }
@@ -2038,9 +2040,9 @@ impl<'a, K: Ord, V, Allocator: GlobalAlloc> Entry<'a, K, V, Allocator> {
     ///
     /// assert_eq!(map["poneyland"], "hoho".to_string());
     /// ```
-    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> &'a mut V {
+    pub fn or_insert_with<F: FnOnce() -> V>(self, default: F) -> AllocResult<&'a mut V> {
         match self {
-            Occupied(entry) => entry.into_mut(),
+            Occupied(entry) => Ok(entry.into_mut()),
             Vacant(entry) => entry.insert(default()),
         }
     }
@@ -2111,9 +2113,9 @@ impl<'a, K: Ord, V: Default, Allocator: GlobalAlloc> Entry<'a, K, V, Allocator> 
     /// assert_eq!(map["poneyland"], None);
     /// # }
     /// ```
-    pub fn or_default(self) -> &'a mut V {
+    pub fn or_default(self) -> AllocResult<&'a mut V> {
         match self {
-            Occupied(entry) => entry.into_mut(),
+            Occupied(entry) => Ok(entry.into_mut()),
             Vacant(entry) => entry.insert(Default::default()),
         }
     }
@@ -2171,7 +2173,7 @@ impl<'a, K: Ord, V, Allocator: GlobalAlloc> VacantEntry<'a, K, V, Allocator> {
     ///
     /// assert_eq!(count["a"], 3);
     /// ```
-    pub fn insert(self, value: V) -> &'a mut V {
+    pub fn insert(self, value: V) -> AllocResult<&'a mut V> {
         *self.length += 1;
 
         let out_ptr;
@@ -2180,8 +2182,8 @@ impl<'a, K: Ord, V, Allocator: GlobalAlloc> VacantEntry<'a, K, V, Allocator> {
         let mut ins_v;
         let mut ins_edge;
 
-        let mut cur_parent = match self.handle.insert(self.key, value) {
-            (Fit(handle), _) => return handle.into_kv_mut().1,
+        let mut cur_parent = match self.handle.insert(self.key, value)? {
+            (Fit(handle), _) => return Ok(handle.into_kv_mut().1),
             (Split(left, k, v, right), ptr) => {
                 ins_k = k;
                 ins_v = v;
@@ -2194,8 +2196,8 @@ impl<'a, K: Ord, V, Allocator: GlobalAlloc> VacantEntry<'a, K, V, Allocator> {
         loop {
             match cur_parent {
                 Ok(parent) => {
-                    match parent.insert(ins_k, ins_v, ins_edge) {
-                        Fit(_) => return unsafe { &mut *out_ptr },
+                    match parent.insert(ins_k, ins_v, ins_edge)? {
+                        Fit(_) => return Ok(unsafe { &mut *out_ptr }),
                         Split(left, k, v, right) => {
                             ins_k = k;
                             ins_v = v;
@@ -2205,8 +2207,8 @@ impl<'a, K: Ord, V, Allocator: GlobalAlloc> VacantEntry<'a, K, V, Allocator> {
                     }
                 }
                 Err(root) => {
-                    root.push_level().push(ins_k, ins_v, ins_edge);
-                    return unsafe { &mut *out_ptr };
+                    root.push_level()?.push(ins_k, ins_v, ins_edge);
+                    return Ok(unsafe { &mut *out_ptr });
                 }
             }
         }
