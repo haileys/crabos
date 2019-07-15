@@ -16,16 +16,12 @@ pub struct Arc<T> {
 
 impl<T> Arc<T> {
     pub fn new(object: T) -> Result<Arc<T>, MemoryExhausted> {
-        let ptr = kalloc::alloc()?;
-
-        unsafe {
-            ptr::write(ptr.as_ptr(), ArcObject {
+        Ok(Arc {
+            ptr: kalloc::alloc(ArcObject {
                 ref_count: AtomicU64::new(1),
                 object,
-            });
-        }
-
-        Ok(Arc { ptr })
+            })?,
+        })
     }
 }
 

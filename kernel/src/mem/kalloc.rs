@@ -8,8 +8,8 @@ use crate::sync::Mutex;
 
 static ALLOCATOR: Mutex<Allocator> = Mutex::new(Allocator::new());
 
-pub fn alloc<T>() -> Result<NonNull<T>, MemoryExhausted> {
-    ALLOCATOR.lock().alloc()
+pub fn alloc<T>(value: T) -> Result<NonNull<T>, MemoryExhausted> {
+    ALLOCATOR.lock().alloc(value)
 }
 
 pub unsafe fn free<T>(ptr: NonNull<T>) {
@@ -114,10 +114,10 @@ impl Allocator {
         }
     }
 
-    pub fn alloc<T>(&mut self) -> Result<NonNull<T>, MemoryExhausted> {
-        self.class::<T>()
-            .alloc()
-            .map(NonNull::cast)
+    pub fn alloc<T>(&mut self, value: T) -> Result<NonNull<T>, MemoryExhausted> {
+        let ptr = self.class::<T>().alloc()?.cast();
+        unsafe { ptr::write(ptr.as_ptr(), value); }
+        Ok(ptr)
     }
 
     pub unsafe fn free<T>(&mut self, ptr: NonNull<T>) {
