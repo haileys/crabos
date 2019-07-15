@@ -49,7 +49,10 @@ impl<T> Drop for Arc<T> {
 
         if ref_count == 1 {
             // we're the last Arc alive
-            unsafe { kalloc::free(self.ptr); }
+            unsafe {
+                ptr::drop_in_place(self.ptr.as_ptr());
+                kalloc::free(self.ptr);
+            }
         }
     }
 }
