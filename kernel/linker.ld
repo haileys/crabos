@@ -22,6 +22,7 @@ SECTIONS {
         *(.rodata.*)
         *(.got)
         *(.got.*)
+        *(.rela.*)
     }
     _rodata_end = .;
 
@@ -76,8 +77,5 @@ SECTIONS {
         /* why does nasm only generate these sections for start.o? */
         target/x86_64-kernel/start.o(.igot.plt)
         target/x86_64-kernel/start.o(.iplt)
-        target/x86_64-kernel/start.o(.rela.got)
-        target/x86_64-kernel/start.o(.rela.iplt)
-        target/x86_64-kernel/start.o(.rela.text)
     }
 }

@@ -1,6 +1,8 @@
+use core::ops::{Deref, DerefMut};
+
 use crate::sync::Mutex;
-use crate::mem::phys::{self, MemoryExhausted};
 use crate::mem::page::{self, PageFlags, MapError, PAGE_SIZE};
+use crate::mem::phys::{self, MemoryExhausted};
 
 use core::ptr::{self, NonNull};
 
@@ -8,12 +10,16 @@ extern { static _end: u8; }
 
 static ALLOCATOR: PageAllocator = unsafe { PageAllocator::new(&_end as *const u8 as *mut u8) };
 
-pub fn alloc() -> Result<NonNull<u8>, MemoryExhausted> {
-    ALLOCATOR.alloc()
+pub unsafe trait PageSized {}
+
+unsafe impl PageSized for u8 {}
+
+pub fn alloc_page<T: PageSized>() -> Result<NonNull<T>, MemoryExhausted> {
+    ALLOCATOR.alloc().map(NonNull::cast)
 }
 
-pub unsafe fn free(page: NonNull<u8>) {
-    ALLOCATOR.free(page)
+pub unsafe fn free_page<T: PageSized>(page: NonNull<T>) {
+    ALLOCATOR.free(page.cast())
 }
 
 struct PageAllocator {
@@ -83,5 +89,37 @@ impl PageAllocator {
         ptr::write(page.as_ptr(), link);
 
         inner.free_page = Some(page);
+    }
+}
+
+pub struct PageBox<T: PageSized> {
+    page: NonNull<T>,
+}
+
+impl<T: PageSized> PageBox<T> {
+    pub fn new(value: T) -> Result<Self, MemoryExhausted> {
+        let page = alloc_page()?;
+        unsafe { ptr::write(page.as_ptr(), value); }
+        Ok(PageBox { page })
+    }
+}
+
+impl<T: PageSized> Drop for PageBox<T> {
+    fn drop(&mut self) {
+        unsafe { ptr::drop_in_place(self.page.as_ptr()); }
+    }
+}
+
+impl<T: PageSized> Deref for PageBox<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        unsafe { self.page.as_ref() }
+    }
+}
+
+impl<T: PageSized> DerefMut for PageBox<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { self.page.as_mut() }
     }
 }
