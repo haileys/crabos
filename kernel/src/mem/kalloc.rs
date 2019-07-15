@@ -63,9 +63,9 @@ impl SizeClass {
     }
 
     pub unsafe fn free(&mut self, ptr: NonNull<u8>) {
-        println!("Allocating in size class {}: {:x?}", self.size, ptr);
+        println!("Freeing in size class {}: {:x?}", self.size, ptr);
 
-        let mut object = ptr.cast::<FreeObject>();
+        let object = ptr.cast::<FreeObject>();
 
         let mut free = FreeObject { next: None };
         mem::swap(&mut self.free, &mut free);
