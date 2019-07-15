@@ -25,7 +25,7 @@
 mod node;
 mod search;
 pub mod map;
-pub mod set;
+// pub mod set;
 
 #[doc(hidden)]
 trait Recover<Q: ?Sized> {

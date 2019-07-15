@@ -27,17 +27,19 @@ use core::cmp::Ordering;
 
 use super::node::{Handle, NodeRef, marker, ForceResult::*};
 
+use crate::glue::GlobalAlloc;
+
 use SearchResult::*;
 
-pub enum SearchResult<BorrowType, K, V, FoundType, GoDownType> {
-    Found(Handle<NodeRef<BorrowType, K, V, FoundType>, marker::KV>),
-    GoDown(Handle<NodeRef<BorrowType, K, V, GoDownType>, marker::Edge>)
+pub enum SearchResult<BorrowType, K, V, FoundType, GoDownType, Allocator> {
+    Found(Handle<NodeRef<BorrowType, K, V, FoundType, Allocator>, marker::KV, Allocator>),
+    GoDown(Handle<NodeRef<BorrowType, K, V, GoDownType, Allocator>, marker::Edge, Allocator>)
 }
 
-pub fn search_tree<BorrowType, K, V, Q: ?Sized>(
-    mut node: NodeRef<BorrowType, K, V, marker::LeafOrInternal>,
+pub fn search_tree<BorrowType, K, V, Q: ?Sized, Allocator: GlobalAlloc>(
+    mut node: NodeRef<BorrowType, K, V, marker::LeafOrInternal, Allocator>,
     key: &Q
-) -> SearchResult<BorrowType, K, V, marker::LeafOrInternal, marker::Leaf>
+) -> SearchResult<BorrowType, K, V, marker::LeafOrInternal, marker::Leaf, Allocator>
         where Q: Ord, K: Borrow<Q> {
 
     loop {
@@ -54,10 +56,10 @@ pub fn search_tree<BorrowType, K, V, Q: ?Sized>(
     }
 }
 
-pub fn search_node<BorrowType, K, V, Type, Q: ?Sized>(
-    node: NodeRef<BorrowType, K, V, Type>,
+pub fn search_node<BorrowType, K, V, Type, Q: ?Sized, Allocator: GlobalAlloc>(
+    node: NodeRef<BorrowType, K, V, Type, Allocator>,
     key: &Q
-) -> SearchResult<BorrowType, K, V, Type, Type>
+) -> SearchResult<BorrowType, K, V, Type, Type, Allocator>
         where Q: Ord, K: Borrow<Q> {
 
     match search_linear(&node, key) {
@@ -70,8 +72,8 @@ pub fn search_node<BorrowType, K, V, Type, Q: ?Sized>(
     }
 }
 
-pub fn search_linear<BorrowType, K, V, Type, Q: ?Sized>(
-    node: &NodeRef<BorrowType, K, V, Type>,
+pub fn search_linear<BorrowType, K, V, Type, Q: ?Sized, Allocator: GlobalAlloc>(
+    node: &NodeRef<BorrowType, K, V, Type, Allocator>,
     key: &Q
 ) -> (usize, bool)
         where Q: Ord, K: Borrow<Q> {

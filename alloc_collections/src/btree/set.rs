@@ -94,8 +94,8 @@ pub struct BTreeSet<T> {
 /// [`BTreeSet`]: struct.BTreeSet.html
 /// [`iter`]: struct.BTreeSet.html#method.iter
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Iter<'a, T: 'a> {
-    iter: Keys<'a, T, ()>,
+pub struct Iter<'a, T: 'a, Allocator> {
+    iter: Keys<'a, T, (), Allocator>,
 }
 
 #[stable(feature = "collection_debug", since = "1.17.0")]
