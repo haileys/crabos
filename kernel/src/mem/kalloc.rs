@@ -1,3 +1,4 @@
+use core::alloc::{AllocErr, Layout};
 use core::mem;
 use core::ptr::{self, NonNull};
 
@@ -73,10 +74,14 @@ impl SizeClass {
 
         self.free.next = Some(object);
     }
+
+    pub fn fits(&self, layout: Layout) -> bool {
+        self.size >= layout.size() && self.size >= layout.align()
+    }
 }
 
 pub struct Allocator {
-    classes: [SizeClass; 8]
+    classes: [SizeClass; 9]
 }
 
 impl Allocator {
@@ -92,36 +97,52 @@ impl Allocator {
                     SizeClass::new(512),
                     SizeClass::new(1024),
                     SizeClass::new(2048),
+                    SizeClass::new(4096),
                 ]
             }
         }
     }
 
-    fn class<T>(&mut self) -> &mut SizeClass {
-        let size = mem::size_of::<T>();
-        let align = mem::align_of::<T>();
-        let aligned_size = size + (size % align);
-
+    fn class(&mut self, layout: Layout) -> &mut SizeClass {
         let class = self.classes.iter_mut()
-            .find(|class| class.size >= aligned_size);
+            .find(|class| class.fits(layout));
 
         match class {
             Some(class) => class,
-            None => {
-                panic!("no size class for size = {}, align = {}, aligned_size = {}",
-                    size, align, aligned_size)
-            }
+            None => panic!("no size class for layout = {:?}", layout)
         }
     }
 
+    pub fn alloc_layout(&mut self, layout: Layout) -> Result<NonNull<u8>, MemoryExhausted> {
+        self.class(layout).alloc()
+    }
+
     pub fn alloc<T>(&mut self, value: T) -> Result<NonNull<T>, MemoryExhausted> {
-        let ptr = self.class::<T>().alloc()?.cast();
+        let ptr = self.alloc_layout(Layout::new::<T>())?.cast();
         unsafe { ptr::write(ptr.as_ptr(), value); }
         Ok(ptr)
     }
 
+    pub unsafe fn free_layout(&mut self, layout: Layout, ptr: NonNull<u8>) {
+        self.class(layout).free(ptr)
+    }
+
     pub unsafe fn free<T>(&mut self, ptr: NonNull<T>) {
-        self.class::<T>()
-            .free(ptr.cast())
+        self.class(Layout::new::<T>()).free(ptr.cast())
+    }
+}
+
+pub struct GlobalAlloc;
+
+unsafe impl alloc_collections::glue::GlobalAlloc for GlobalAlloc {
+    unsafe fn alloc(layout: Layout) -> Result<NonNull<u8>, AllocErr> {
+        ALLOCATOR.lock()
+            .alloc_layout(layout)
+            .map_err(|_| AllocErr)
+    }
+
+    unsafe fn dealloc(ptr: NonNull<u8>, layout: Layout) {
+        ALLOCATOR.lock()
+            .free_layout(layout, ptr)
     }
 }

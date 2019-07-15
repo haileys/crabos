@@ -6,10 +6,14 @@
 #![feature(naked_functions)]
 #![feature(panic_info_message)]
 #![feature(ptr_offset_from)]
+#![feature(allocator_api)]
+#![feature(never_type)]
 
+#[allow(unused)]
 #[macro_use]
 extern crate kernel_derive;
 
+mod collections;
 mod console;
 mod critical;
 mod device;
@@ -24,7 +28,6 @@ use core::ptr;
 
 use mem::phys;
 use mem::page::{self, PageFlags};
-use mem::kalloc;
 
 extern "C" {
     static mut _end: u8;
@@ -65,6 +68,6 @@ pub extern "C" fn main() -> ! {
 
         ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
 
-        task::start();
+        task::start().expect("task::start");
     }
 }
