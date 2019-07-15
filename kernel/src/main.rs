@@ -24,6 +24,7 @@ use core::ptr;
 
 use mem::phys;
 use mem::page::{self, PageFlags};
+use mem::kalloc;
 
 extern "C" {
     static mut _end: u8;
