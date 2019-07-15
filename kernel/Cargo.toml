@@ -5,6 +5,7 @@ authors = ["Hailey Somerville <hailey@hailey.lol>"]
 edition = "2018"
 
 [dependencies]
+alloc_collections = { path = "../alloc_collections" }
 bitflags = "1.0"
 static_assertions = "0.3"
 x86_64 = "0.7"
