@@ -1,6 +1,5 @@
 #![no_std]
 #![no_main]
-#![feature(alloc_error_handler)]
 #![feature(asm)]
 #![feature(core_panic)]
 #![feature(lang_items)]
@@ -8,7 +7,6 @@
 #![feature(panic_info_message)]
 #![feature(ptr_offset_from)]
 
-extern crate alloc;
 
 mod console;
 mod critical;
@@ -22,18 +20,12 @@ mod task;
 
 use core::ptr;
 
-use mem::kvirt::WatermarkAllocator;
 use mem::phys;
 use mem::page::{self, PageFlags};
 
 extern "C" {
     static mut _end: u8;
 }
-
-#[global_allocator]
-pub static DEFAULT_ALLOCATOR: WatermarkAllocator = unsafe {
-    WatermarkAllocator::new(&_end as *const u8 as *mut u8)
-};
 
 #[no_mangle]
 pub extern "C" fn main() -> ! {
