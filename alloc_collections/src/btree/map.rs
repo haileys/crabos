@@ -26,7 +26,7 @@ use core::borrow::Borrow;
 use core::cmp::Ordering;
 use core::fmt::Debug;
 use core::hash::{Hash, Hasher};
-use core::iter::{FromIterator, Peekable, FusedIterator};
+use core::iter::{Peekable, FusedIterator};
 use core::marker::PhantomData;
 use core::ops::Bound::{Excluded, Included, Unbounded};
 use core::ops::{Index, RangeBounds};
@@ -159,7 +159,7 @@ unsafe impl<#[may_dangle] K, #[may_dangle] V, Allocator: GlobalAlloc> Drop for B
 }
 
 impl<K: Clone, V: Clone, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
-    fn clone(&self) -> AllocResult<BTreeMap<K, V, Allocator>> {
+    pub fn clone(&self) -> AllocResult<BTreeMap<K, V, Allocator>> {
         fn clone_subtree<'a, K: Clone, V: Clone, Allocator: GlobalAlloc>(
             node: node::NodeRef<marker::Immut<'a>, K, V, marker::LeafOrInternal, Allocator>
         ) -> AllocResult<BTreeMap<K, V, Allocator>>
@@ -264,10 +264,10 @@ impl<K, Q: ?Sized, Allocator: GlobalAlloc> super::Recover<Q> for BTreeMap<K, (),
         }
     }
 
-    fn replace(&mut self, key: K) -> Option<K> {
-        self.ensure_root_is_owned();
+    fn replace(&mut self, key: K) -> AllocResult<Option<K>> {
+        self.ensure_root_is_owned()?;
         match search::search_tree::<marker::Mut<'_>, K, (), K, Allocator>(self.root.as_mut(), &key) {
-            Found(handle) => Some(mem::replace(handle.into_kv_mut().0, key)),
+            Found(handle) => Ok(Some(mem::replace(handle.into_kv_mut().0, key))),
             GoDown(handle) => {
                 VacantEntry {
                     key,
@@ -275,8 +275,8 @@ impl<K, Q: ?Sized, Allocator: GlobalAlloc> super::Recover<Q> for BTreeMap<K, (),
                     length: &mut self.length,
                     _marker: PhantomData,
                 }
-                .insert(());
-                None
+                .insert(())?;
+                Ok(None)
             }
         }
     }
@@ -673,12 +673,12 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
     /// assert_eq!(map.insert(37, "c"), Some("b"));
     /// assert_eq!(map[&37], "c");
     /// ```
-    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        match self.entry(key) {
-            Occupied(mut entry) => Some(entry.insert(value)),
+    pub fn insert(&mut self, key: K, value: V) -> AllocResult<Option<V>> {
+        match self.entry(key)? {
+            Occupied(mut entry) => Ok(Some(entry.insert(value))),
             Vacant(entry) => {
-                entry.insert(value);
-                None
+                entry.insert(value)?;
+                Ok(None)
             }
         }
     }
@@ -746,16 +746,16 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
     /// assert_eq!(a[&4], "e");
     /// assert_eq!(a[&5], "f");
     /// ```
-    pub fn append(&mut self, other: &mut Self) {
+    pub fn append(&mut self, other: &mut Self) -> AllocResult<()> {
         // Do we have to append anything at all?
         if other.len() == 0 {
-            return;
+            return Ok(());
         }
 
         // We can just swap `self` and `other` if `self` is empty.
         if self.len() == 0 {
             mem::swap(self, other);
-            return;
+            return Ok(());
         }
 
         // First, we merge `self` and `other` into a sorted sequence in linear time.
@@ -767,8 +767,9 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
         };
 
         // Second, we build a tree from the sorted sequence in linear time.
-        self.from_sorted_iter(iter);
+        self.from_sorted_iter(iter)?;
         self.fix_right_edge();
+        Ok(())
     }
 
     /// Constructs a double-ended iterator over a sub-range of elements in the map.
@@ -872,30 +873,30 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
     ///
     /// assert_eq!(count["a"], 3);
     /// ```
-    pub fn entry(&mut self, key: K) -> Entry<'_, K, V, Allocator> {
+    pub fn entry(&mut self, key: K) -> AllocResult<Entry<'_, K, V, Allocator>> {
         // FIXME(@porglezomp) Avoid allocating if we don't insert
-        self.ensure_root_is_owned();
+        self.ensure_root_is_owned()?;
         match search::search_tree(self.root.as_mut(), &key) {
             Found(handle) => {
-                Occupied(OccupiedEntry {
+                Ok(Occupied(OccupiedEntry {
                     handle,
                     length: &mut self.length,
                     _marker: PhantomData,
-                })
+                }))
             }
             GoDown(handle) => {
-                Vacant(VacantEntry {
+                Ok(Vacant(VacantEntry {
                     key,
                     handle,
                     length: &mut self.length,
                     _marker: PhantomData,
-                })
+                }))
             }
         }
     }
 
     fn from_sorted_iter<I: Iterator<Item = (K, V)>>(&mut self, iter: I) -> AllocResult<()> {
-        self.ensure_root_is_owned();
+        self.ensure_root_is_owned()?;
         let mut cur_node = last_leaf_edge(self.root.as_mut()).into_node();
         // Iterate through all key-value pairs, pushing them into nodes at the right level.
         for (key, value) in iter {
@@ -1007,7 +1008,7 @@ impl<K: Ord, V, Allocator: GlobalAlloc> BTreeMap<K, V, Allocator> {
         let mut right = Self::new();
         right.root = node::Root::new_leaf()?;
         for _ in 0..(self.root.as_ref().height()) {
-            right.root.push_level();
+            right.root.push_level()?;
         }
 
         {
@@ -1650,26 +1651,6 @@ impl<'a, K, V, Allocator: GlobalAlloc> RangeMut<'a, K, V, Allocator> {
                 }
             }
         }
-    }
-}
-impl<K: Ord, V, Allocator: GlobalAlloc> FromIterator<(K, V)> for BTreeMap<K, V, Allocator> {
-    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> BTreeMap<K, V, Allocator> {
-        let mut map = BTreeMap::new();
-        map.extend(iter);
-        map
-    }
-}
-impl<K: Ord, V, Allocator: GlobalAlloc> Extend<(K, V)> for BTreeMap<K, V, Allocator> {
-    #[inline]
-    fn extend<T: IntoIterator<Item = (K, V)>>(&mut self, iter: T) {
-        iter.into_iter().for_each(move |(k, v)| {
-            self.insert(k, v);
-        });
-    }
-}
-impl<'a, K: Ord + Copy, V: Copy, Allocator: GlobalAlloc> Extend<(&'a K, &'a V)> for BTreeMap<K, V, Allocator> {
-    fn extend<I: IntoIterator<Item = (&'a K, &'a V)>>(&mut self, iter: I) {
-        self.extend(iter.into_iter().map(|(&key, &value)| (key, value)));
     }
 }
 impl<K: Hash, V: Hash, Allocator: GlobalAlloc> Hash for BTreeMap<K, V, Allocator> {

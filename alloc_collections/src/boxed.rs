@@ -2,7 +2,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::ops::{Deref, DerefMut};
 use core::ptr::{self, NonNull, Unique};
-use core::alloc::{Alloc, AllocErr, Layout};
+use core::alloc::{AllocErr, Layout};
 
 use crate::glue::GlobalAlloc;
 
