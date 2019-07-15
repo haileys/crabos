@@ -1,9 +1,8 @@
 use core::mem;
 use core::ptr::{self, NonNull};
 
-use crate::mem::kvirt;
+use crate::mem::{kvirt, MemoryExhausted};
 use crate::mem::page::PAGE_SIZE;
-use crate::mem::phys::MemoryExhausted;
 use crate::println;
 use crate::sync::Mutex;
 

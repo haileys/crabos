@@ -4,7 +4,8 @@ use bitflags::bitflags;
 use x86_64::registers::control::Cr3;
 
 use crate::critical::{self, Critical};
-use crate::mem::phys::{self, Phys, RawPhys, MemoryExhausted};
+use crate::mem::MemoryExhausted;
+use crate::mem::phys::{self, Phys, RawPhys};
 
 pub const PAGE_SIZE: usize = 0x1000;
 

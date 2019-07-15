@@ -1,8 +1,9 @@
 use core::ops::{Deref, DerefMut};
 
-use crate::sync::Mutex;
+use crate::mem::MemoryExhausted;
 use crate::mem::page::{self, PageFlags, MapError, PAGE_SIZE};
-use crate::mem::phys::{self, MemoryExhausted};
+use crate::mem::phys;
+use crate::sync::Mutex;
 
 use core::ptr::{self, NonNull};
 

@@ -4,6 +4,7 @@ use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::critical::{self, Critical};
+use crate::mem::MemoryExhausted;
 use crate::mem::page::{self, PAGE_SIZE, PageFlags};
 use crate::sync::Mutex;
 
@@ -19,9 +20,6 @@ static NEXT_FREE_PHYS: Mutex<Option<RawPhys>> = Mutex::new(None);
 const REGION_KIND_USABLE: u32 = 1;
 const HIGH_MEMORY_BOUNDARY: RawPhys = RawPhys(0x100000);
 const MAX_PHYS_PAGE: u64 = 1 << 48;
-
-#[derive(Debug)]
-pub struct MemoryExhausted;
 
 #[repr(transparent)]
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Debug)]
