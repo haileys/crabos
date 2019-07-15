@@ -7,6 +7,8 @@
 #![feature(panic_info_message)]
 #![feature(ptr_offset_from)]
 
+#[macro_use]
+extern crate kernel_derive;
 
 mod console;
 mod critical;

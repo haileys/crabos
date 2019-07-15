@@ -1,10 +1,12 @@
 use crate::interrupt::TrapFrame;
 use crate::page::{self, PageCtx};
 use crate::sync::Mutex;
+use crate::mem::kalloc::PageSized;
 
 pub const SEG_UCODE: u16 = 0x1b;
 pub const SEG_UDATA: u16 = 0x23;
 
+#[derive(PageSized)]
 pub struct Task {
     frame: TrapFrame,
     page_ctx: PageCtx,
