@@ -11,19 +11,18 @@ use crate::sync::{Arc, Mutex};
 pub const SEG_UCODE: u16 = 0x1b;
 pub const SEG_UDATA: u16 = 0x23;
 
-static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
-
-pub struct Tasks {
-    map: BTreeMap<TaskId, TaskRef, GlobalAlloc>,
-    current: TaskRef,
-}
-
 static TASKS: Mutex<Option<Tasks>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Ord)]
 pub struct TaskId(pub u64);
 
 pub type TaskRef = Arc<Mutex<Task>>;
+
+pub struct Tasks {
+    map: BTreeMap<TaskId, TaskRef, GlobalAlloc>,
+    current: Option<TaskRef>,
+    next_id: u64,
+}
 
 pub struct Task {
     id: TaskId,
@@ -32,33 +31,43 @@ pub struct Task {
     // parent: Arc<Task>,
 }
 
+impl Tasks {
+    pub fn create(&mut self, frame: TrapFrame, page_ctx: PageCtx)
+        -> Result<TaskRef, MemoryExhausted>
+    {
+        let id = TaskId(self.next_id);
+        self.next_id += 1;
+
+        let task = Arc::new(Mutex::new(Task {
+            id,
+            frame,
+            page_ctx,
+        }))?;
+
+        self.map.insert(id, task.clone())
+            .map_err(|_| MemoryExhausted)?;
+
+        Ok(task)
+    }
+}
+
 pub unsafe fn start() -> Result<!, MemoryExhausted> {
     let mut frame = TrapFrame::new(0x1_0000_0000, 0x0);
 
-    let mut task_map = BTreeMap::new();
+    let mut tasks = Tasks {
+        map: BTreeMap::new(),
+        current: None,
+        next_id: 1,
+    };
 
-    let init = Arc::new(Mutex::new(Task {
-        id: TaskId(1),
-        frame: frame.clone(),
-        page_ctx: page::current_ctx(),
-    }))?;
+    let init = tasks.create(frame.clone(), page::current_ctx())?;
 
-    task_map.insert(TaskId(1), init.clone())
-        .map_err(|_| MemoryExhausted);
+    let second = tasks.create(TrapFrame::new(0x1_0000_1000, 0x0),
+        page::current_ctx())?;
 
-    let second = Arc::new(Mutex::new(Task {
-        id: TaskId(2),
-        frame: TrapFrame::new(0x1_0000_1000, 0x0),
-        page_ctx: page::current_ctx(),
-    }))?;
+    tasks.current = Some(init);
 
-    task_map.insert(TaskId(2), second)
-        .map_err(|_| MemoryExhausted);
-
-    *TASKS.lock() = Some(Tasks {
-        map: task_map,
-        current: init,
-    });
+    *TASKS.lock() = Some(tasks);
 
     asm!("
         movq $0, %rsp
@@ -77,9 +86,16 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
 
     // save old context
     let current_id = {
-        let mut current_locked = tasks.current.lock();
-        current_locked.frame = frame.clone();
-        current_locked.id
+        match tasks.current {
+            Some(ref task) => {
+                let mut task = task.lock();
+                task.frame = frame.clone();
+                task.id
+            }
+            None => {
+                TaskId(0)
+            }
+        }
     };
 
     // select new task to run
@@ -93,7 +109,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
         .cloned()
         .expect("no task to run!");
 
-    tasks.current = new_task.clone();
+    tasks.current = Some(new_task.clone());
 
     // restore new task context
     *frame = new_task.lock()
