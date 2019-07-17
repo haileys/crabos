@@ -81,23 +81,25 @@ pub unsafe fn set_ctx(ctx: PageCtx) {
     Phys::from_raw(old_cr3);
 }
 
-unsafe fn pml4_entry(virt: u64) -> *mut PmlEntry {
-    let base = 0xfffffffffffff000 as *mut PmlEntry;
+const CURRENT_PML: u64 = 0xffffff8000000000;
+
+unsafe fn pml4_entry(base: u64, virt: u64) -> *mut PmlEntry {
+    let base = (base + 0x7ffffff000) as *mut PmlEntry;
     base.add(((virt >> 39) & 0x1ff) as usize)
 }
 
-unsafe fn pml3_entry(virt: u64) -> *mut PmlEntry {
-    let base = 0xffffffffffe00000 as *mut PmlEntry;
+unsafe fn pml3_entry(base: u64, virt: u64) -> *mut PmlEntry {
+    let base = (base + 0x7fffe00000) as *mut PmlEntry;
     base.add(((virt >> 30) & 0x3ffff) as usize)
 }
 
-unsafe fn pml2_entry(virt: u64) -> *mut PmlEntry {
-    let base = 0xffffffffc0000000 as *mut PmlEntry;
+unsafe fn pml2_entry(base: u64, virt: u64) -> *mut PmlEntry {
+    let base = (base + 0x7fc0000000) as *mut PmlEntry;
     base.add(((virt >> 21) & 0x7ffffff) as usize)
 }
 
-unsafe fn pml1_entry(virt: u64) -> *mut PmlEntry {
-    let base = 0xffffff8000000000 as *mut PmlEntry;
+unsafe fn pml1_entry(base: u64, virt: u64) -> *mut PmlEntry {
+    let base = base as *mut PmlEntry;
     base.add(((virt >> 12) & 0xfffffffff) as usize)
 }
 
@@ -155,7 +157,7 @@ pub fn invlpg(virt: *mut u8) {
 // section:
 pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> *mut T {
     let virt = &mut temp_page as *mut u8;
-    let entry = pml1_entry(virt as u64);
+    let entry = pml1_entry(CURRENT_PML, virt as u64);
 
     if (*entry).0 != 0 {
         panic!("temp page already mapped");
@@ -169,7 +171,7 @@ pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> *mut T {
 
 pub unsafe fn temp_unmap(_critical: &Critical) {
     let virt = &mut temp_page as *mut u8;
-    *pml1_entry(virt as u64) = PmlEntry(0);
+    *pml1_entry(CURRENT_PML, virt as u64) = PmlEntry(0);
     invlpg(virt);
 }
 
@@ -184,10 +186,10 @@ pub fn is_mapped(virt: *const u8) -> bool {
         let virt = virt as u64;
 
         unsafe {
-            let pml4_ent = pml4_entry(virt);
-            let pml3_ent = pml3_entry(virt);
-            let pml2_ent = pml2_entry(virt);
-            let pml1_ent = pml1_entry(virt);
+            let pml4_ent = pml4_entry(CURRENT_PML, virt);
+            let pml3_ent = pml3_entry(CURRENT_PML, virt);
+            let pml2_ent = pml2_entry(CURRENT_PML, virt);
+            let pml1_ent = pml1_entry(CURRENT_PML, virt);
 
             // ensure all pml tables exist:
 
@@ -212,10 +214,10 @@ pub unsafe fn map(phys: Phys, virt: *mut u8, flags: PageFlags) -> Result<(), Map
     critical::section(|| {
         let virt = virt as u64;
 
-        let pml4_ent = pml4_entry(virt);
-        let pml3_ent = pml3_entry(virt);
-        let pml2_ent = pml2_entry(virt);
-        let pml1_ent = pml1_entry(virt);
+        let pml4_ent = pml4_entry(CURRENT_PML, virt);
+        let pml3_ent = pml3_entry(CURRENT_PML, virt);
+        let pml2_ent = pml2_entry(CURRENT_PML, virt);
+        let pml1_ent = pml1_entry(CURRENT_PML, virt);
 
         // ensure all pml tables exist:
 
@@ -260,15 +262,15 @@ pub unsafe fn map(phys: Phys, virt: *mut u8, flags: PageFlags) -> Result<(), Map
 #[derive(Debug)]
 pub struct NotMapped;
 
-fn checked_pml1_entry(virt: *mut u8, _crit: &Critical) -> Result<*mut PmlEntry, NotMapped> {
+fn checked_pml1_entry(pml_base: u64, virt: *mut u8, _crit: &Critical) -> Result<*mut PmlEntry, NotMapped> {
     critical::section(|| {
         unsafe {
             let virt = virt as u64;
 
-            let pml4_ent = pml4_entry(virt);
-            let pml3_ent = pml3_entry(virt);
-            let pml2_ent = pml2_entry(virt);
-            let pml1_ent = pml1_entry(virt);
+            let pml4_ent = pml4_entry(pml_base, virt);
+            let pml3_ent = pml3_entry(pml_base, virt);
+            let pml2_ent = pml2_entry(pml_base, virt);
+            let pml1_ent = pml1_entry(pml_base, virt);
 
             if (*pml4_ent).0 == 0 {
                 return Err(NotMapped);
@@ -292,7 +294,7 @@ fn checked_pml1_entry(virt: *mut u8, _crit: &Critical) -> Result<*mut PmlEntry, 
 }
 
 pub fn entry(virt: *mut u8, _crit: &Critical) -> Result<&PmlEntry, NotMapped> {
-    let entry = checked_pml1_entry(virt, _crit)?;
+    let entry = checked_pml1_entry(CURRENT_PML, virt, _crit)?;
 
     // Safety(UNSAFE): ref lifetime is tied to critical section lifetime.
     // This could result in bad memory access if the page tables are mutated
@@ -304,7 +306,7 @@ pub fn entry(virt: *mut u8, _crit: &Critical) -> Result<&PmlEntry, NotMapped> {
 pub unsafe fn unmap(virt: *mut u8) -> Result<(), NotMapped> {
     let crit = critical::begin();
 
-    let pml1_ent = checked_pml1_entry(virt, &crit)?;
+    let pml1_ent = checked_pml1_entry(CURRENT_PML, virt, &crit)?;
 
     match (*pml1_ent).raw_phys() {
         Some(raw_phys) => {
@@ -323,7 +325,7 @@ pub unsafe fn unmap(virt: *mut u8) -> Result<(), NotMapped> {
 pub unsafe fn modify(virt: *mut u8, flags: PageFlags) -> Result<(), NotMapped> {
     let crit = critical::begin();
 
-    let pml1_ent = checked_pml1_entry(virt, &crit)?;
+    let pml1_ent = checked_pml1_entry(CURRENT_PML, virt, &crit)?;
     (*pml1_ent).set_flags(flags);
 
     Ok(())
@@ -334,7 +336,7 @@ pub fn virt_to_phys(virt: *mut u8) -> Result<Phys, NotMapped> {
     let crit = critical::begin();
 
     unsafe {
-        let pml1_ent = checked_pml1_entry(virt, &crit)?;
+        let pml1_ent = checked_pml1_entry(CURRENT_PML, virt, &crit)?;
 
         (*pml1_ent).raw_phys()
             .map(|raw_phys| Phys::new(raw_phys))
