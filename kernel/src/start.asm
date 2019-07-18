@@ -104,21 +104,26 @@ long_mode:
     mov rsi, _base
     mov r8, _rodata_end
     mov r9, _bss_end
-.map_kernel:
-    ; build pt k entry
+    mov r10, stackguard
+map_kernel:
+    ; don't map stack guard:
+    cmp rsi, r10
+    je .commit
+    ; build pt k entry:
     mov rax, rsi
     mov rbx, KERNEL_BASE - KERNEL_PHYS_BASE
     sub rax, rbx
     or rax, PAGE_PRESENT
+    ; don't map ro sections as writable:
     cmp rsi, r8
-    jb .no_write
+    jb .commit
     or rax, PAGE_WRITABLE
-.no_write:
+.commit:
     stosq
     ; compare to end
     add rsi, PAGE_SIZE
     cmp rsi, r9
-    jb .map_kernel
+    jb map_kernel
 
     ; flush TLB
     mov rax, cr3
@@ -129,17 +134,6 @@ long_mode:
     jmp rax
 
 higher_half:
-    ; unmap stack guard
-    mov rbx, stackguard
-    mov rax, 0x0000ffffffffffff
-    and rbx, rax
-    shr rbx, 12
-    shl rbx, 3 ; * 8
-    mov rax, PAGE_TABLES
-    add rbx, rax
-    mov [rbx], dword 0
-    invlpg [rel stackguard]
-
     ; set up kernel stack
     mov rsp, stackend
 
