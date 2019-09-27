@@ -13,7 +13,6 @@
 #[macro_use]
 extern crate kernel_derive;
 
-mod collections;
 mod console;
 mod critical;
 mod device;
