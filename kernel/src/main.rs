@@ -8,6 +8,9 @@
 #![feature(ptr_offset_from)]
 #![feature(allocator_api)]
 #![feature(never_type)]
+#![feature(ptr_internals)]
+#![feature(unsize)]
+#![feature(coerce_unsized)]
 
 #[allow(unused)]
 #[macro_use]

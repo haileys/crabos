@@ -13,8 +13,8 @@ pub fn alloc<T>(value: T) -> Result<NonNull<T>, MemoryExhausted> {
     ALLOCATOR.lock().alloc(value)
 }
 
-pub unsafe fn free<T>(ptr: NonNull<T>) {
-    ALLOCATOR.lock().free(ptr)
+pub unsafe fn free_layout(layout: Layout, ptr: NonNull<u8>) {
+    ALLOCATOR.lock().free_layout(layout, ptr)
 }
 
 struct FreeObject {
@@ -125,10 +125,6 @@ impl Allocator {
 
     pub unsafe fn free_layout(&mut self, layout: Layout, ptr: NonNull<u8>) {
         self.class(layout).free(ptr)
-    }
-
-    pub unsafe fn free<T>(&mut self, ptr: NonNull<T>) {
-        self.class(Layout::new::<T>()).free(ptr.cast())
     }
 }
 
