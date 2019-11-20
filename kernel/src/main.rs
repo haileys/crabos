@@ -11,6 +11,7 @@
 #![feature(ptr_internals)]
 #![feature(unsize)]
 #![feature(coerce_unsized)]
+#![feature(panic_internals)]
 
 #[allow(unused)]
 #[macro_use]

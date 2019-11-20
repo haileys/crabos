@@ -1,6 +1,6 @@
 use core::fmt::{self, Write};
 use core::iter::Iterator;
-use core::panic::PanicInfo;
+use core::panic::{PanicInfo, Location};
 use core::panicking;
 use core::slice;
 use core::str;
@@ -54,10 +54,10 @@ pub unsafe extern "C" fn c_panic(msg: *const u8) -> ! {
     // find null terminator:
     let msg_len = (0..).find(|idx| *msg.add(*idx) == 0)
         .expect("panic msg must have null terminator");
-
     let bytes = slice::from_raw_parts(msg, msg_len);
-
     let msg = str::from_utf8_unchecked(bytes);
 
-    panicking::panic(&(msg, "(none)", 0, 0));
+    let loc = Location::internal_constructor("(none)", 0, 0);
+
+    panicking::panic(msg, &loc);
 }
