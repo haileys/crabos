@@ -132,8 +132,8 @@ impl<K, V, Allocator: GlobalAlloc> LeafNode<K, V, Allocator> {
         LeafNode {
             // As a general policy, we leave fields uninitialized if they can be, as this should
             // be both slightly faster and easier to track in Valgrind.
-            keys: uninitialized_array![_; CAPACITY],
-            vals: uninitialized_array![_; CAPACITY],
+            keys: [MaybeUninit::UNINIT; CAPACITY],
+            vals: [MaybeUninit::UNINIT; CAPACITY],
             parent: ptr::null(),
             parent_idx: MaybeUninit::uninit(),
             len: 0
@@ -185,7 +185,7 @@ impl<K, V, Allocator: GlobalAlloc> InternalNode<K, V, Allocator> {
     unsafe fn new() -> Self {
         InternalNode {
             data: LeafNode::new(),
-            edges: uninitialized_array![_; 2*B],
+            edges: [MaybeUninit::UNINIT; 2*B],
         }
     }
 }
