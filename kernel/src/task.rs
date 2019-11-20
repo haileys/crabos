@@ -1,5 +1,3 @@
-use core::sync::atomic::AtomicU64;
-
 use alloc_collections::btree_map::BTreeMap;
 
 use crate::interrupt::TrapFrame;
