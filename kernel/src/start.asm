@@ -6,6 +6,7 @@ extern _base
 extern _bss
 extern _rodata_end
 extern _bss_end
+extern _tls_storage
 extern main
 extern phys_init
 extern isrs_init
@@ -136,6 +137,13 @@ map_kernel:
 higher_half:
     ; set up kernel stack
     mov rsp, stackend
+
+    ; set up TLS
+    mov ecx, 0xc0000100 ; MSR_FS_BASE
+    mov rax, _tls_storage
+    mov rdx, rax
+    shr rdx, 32
+    wrmsr
 
     ; init phys allocator
     mov esi, [EARLY_MEMORY_MAP_LEN]
