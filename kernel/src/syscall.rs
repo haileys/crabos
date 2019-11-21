@@ -9,15 +9,13 @@ use crate::mem::page::{self, PAGE_SIZE, PageFlags, MapError};
 use crate::mem::phys::{self};
 use interface::{OK, Syscall, SysError, SysResult};
 
-pub async fn dispatch(mut frame: TrapFrame) -> TrapFrame {
+pub async fn dispatch(frame: &mut TrapFrame) {
     let result = dispatch0(&mut frame.regs).await;
 
     frame.regs.rax = match result {
         Ok(()) => OK,
         Err(e) => e.into(),
     };
-
-    frame
 }
 
 async fn dispatch0(regs: &mut Registers) -> SysResult<()> {

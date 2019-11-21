@@ -32,7 +32,7 @@ pub struct Tasks {
 
 #[derive(Debug)]
 pub enum TaskState {
-    Entry(TrapFrame),
+    SyscallEntry(TrapFrame),
     Wake,
     Sleep,
     User(TrapFrame),
@@ -79,30 +79,16 @@ impl Tasks {
     }
 }
 
-pub unsafe fn start() -> Result<!, MemoryExhausted> {
+pub unsafe fn start(f: impl FnOnce(&mut Tasks) -> Result<(), MemoryExhausted>)
+    -> Result<!, MemoryExhausted>
+{
     let mut tasks = Tasks {
         map: BTreeMap::new(),
         current: None,
         next_id: 1,
     };
 
-    let init = tasks.create(page::current_ctx(), |task| async move {
-        let mut task = task.setup(TrapFrame::new(0x1_0000_0000, 0x0));
-
-        loop {
-            task.run().await;
-        }
-    })?;
-
-    let second = tasks.create(page::current_ctx(), |task| async move {
-        let mut task = task.setup(TrapFrame::new(0x1_0000_1000, 0x0));
-
-        loop {
-            task.run().await;
-        }
-    })?;
-
-    tasks.current = Some(init);
+    f(&mut tasks);
 
     *TASKS.lock() = Some(tasks);
 
@@ -168,7 +154,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
                 TaskState::Sleep => {
                     continue;
                 }
-                TaskState::Entry(_) | TaskState::Wake => {
+                TaskState::SyscallEntry(_) | TaskState::Wake => {
                     tasks.current = Some(task.clone());
 
                     return (*id, WorkItem::Kernel(Arc::clone(&task_locked.future)));
@@ -220,7 +206,7 @@ pub unsafe fn dispatch_syscall(frame: &mut TrapFrame) {
 
         let previous_state = mem::replace(
             &mut *current_task.state.lock(),
-            TaskState::Entry(frame.clone()));
+            TaskState::SyscallEntry(frame.clone()));
 
         match previous_state {
             TaskState::User(_) => { /* ok */ }
@@ -279,6 +265,14 @@ impl TaskRun {
 
         TaskResume { task_run: self }
     }
+
+    pub fn trap_frame(&mut self) -> &mut TrapFrame {
+        &mut self.trap_frame
+    }
+}
+
+pub enum Trap {
+    Syscall,
 }
 
 pub struct TaskResume<'a> {
@@ -286,17 +280,17 @@ pub struct TaskResume<'a> {
 }
 
 impl<'a> Future for TaskResume<'a> {
-    type Output = ();
+    type Output = Trap;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut core::task::Context) -> Poll<Self::Output> {
-        let frame = match *self.task_run.task_state.lock() {
-            TaskState::Entry(ref frame) => frame.clone(),
+        let (trap, frame) = match *self.task_run.task_state.lock() {
+            TaskState::SyscallEntry(ref frame) => (Trap::Syscall, frame.clone()),
             TaskState::Wake => return Poll::Pending,
             TaskState::User(_) => return Poll::Pending,
             TaskState::Sleep => panic!("task state should not be Sleep"),
         };
 
         self.task_run.trap_frame = frame;
-        Poll::Ready(())
+        Poll::Ready(trap)
     }
 }

@@ -71,7 +71,32 @@ pub extern "C" fn main() -> ! {
 
         ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
 
-        task::start().expect("task::start");
+        task::start(|tasks| {
+            use task::Trap;
+            use interrupt::TrapFrame;
+
+            let init = tasks.create(page::current_ctx(), |task| async move {
+                let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
+
+                loop {
+                    match task.run().await {
+                        Trap::Syscall => {
+                            syscall::dispatch(task.trap_frame()).await;
+                        }
+                    }
+                }
+            })?;
+
+            let second = tasks.create(page::current_ctx(), |task| async move {
+                let mut task = task.setup(TrapFrame::new(b_addr as u64, 0x0));
+
+                loop {
+                    task.run().await;
+                }
+            })?;
+
+            Ok(())
+        }).expect("task::start");
     }
 }
 
