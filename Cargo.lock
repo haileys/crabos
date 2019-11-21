@@ -33,6 +33,11 @@ version = "1.0.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "core-futures-tls"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "interface"
 version = "0.0.0"
 
@@ -42,6 +47,7 @@ version = "0.0.0"
 dependencies = [
  "alloc_collections 0.0.0",
  "bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "core-futures-tls 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "interface 0.0.0",
  "kernel_derive 0.0.0",
  "static_assertions 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -153,6 +159,7 @@ dependencies = [
 "checksum bitflags 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "228047a76f468627ca71776ecdebd732a3423081fcf5125585bcd7c49886ce12"
 "checksum cast 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "926013f2860c46252efceabb19f4a6b308197505082c609025aa6706c011d427"
 "checksum cc 1.0.31 (registry+https://github.com/rust-lang/crates.io-index)" = "c9ce8bb087aacff865633f0bd5aeaed910fe2fe55b55f4739527f2e023a2e53d"
+"checksum core-futures-tls 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "0407dd6f9b5ed2842f9d287934231e3d270a240d2bb9bf8a56f02e37381c793a"
 "checksum nodrop 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "2f9667ddcc6cc8a43afc9b7917599d7216aa09c463919ea32c59ed6cac8bc945"
 "checksum proc-macro2 0.4.30 (registry+https://github.com/rust-lang/crates.io-index)" = "cf3d2011ab5c909338f7887f4fc896d35932e29146c12c8d01da6b22a80ba759"
 "checksum quote 0.6.13 (registry+https://github.com/rust-lang/crates.io-index)" = "6ce23b6b870e8f94f81fb0a363d65d86675884b34a09043c81e5562f11c1f8e1"

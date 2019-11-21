@@ -74,3 +74,8 @@ pub extern "C" fn main() -> ! {
         task::start().expect("task::start");
     }
 }
+
+#[no_mangle]
+pub extern "C" fn __tls_get_addr() {
+    panic!("__tls_get_addr not implemented");
+}
