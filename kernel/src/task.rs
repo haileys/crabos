@@ -49,14 +49,14 @@ pub struct Task {
 
 impl Tasks {
     pub fn create<F, Fut>(&mut self, page_ctx: PageCtx, f: F) -> Result<TaskRef, MemoryExhausted>
-        where F: FnOnce(TaskHandle) -> Fut, Fut: Future<Output = ()> + 'static
+        where F: FnOnce(TaskEmbryo) -> Fut, Fut: Future<Output = ()> + 'static
     {
         let id = TaskId(self.next_id);
         self.next_id += 1;
 
         let task_state = Arc::new(Mutex::new(TaskState::Wake))?;
 
-        let future = Box::new(f(TaskHandle {
+        let future = Box::new(f(TaskEmbryo {
             task_state: task_state.clone(),
         })).map_err(|_| MemoryExhausted)?;
 
@@ -86,19 +86,19 @@ pub unsafe fn start() -> Result<!, MemoryExhausted> {
         next_id: 1,
     };
 
-    let init = tasks.create(page::current_ctx(), |mut task| async move {
-        let mut frame = TrapFrame::new(0x1_0000_0000, 0x0);
+    let init = tasks.create(page::current_ctx(), |task| async move {
+        let mut task = task.setup(TrapFrame::new(0x1_0000_0000, 0x0));
+
         loop {
-            let new_frame = task.step(frame).await;
-            frame = new_frame;
+            task.run().await;
         }
     })?;
 
-    let second = tasks.create(page::current_ctx(), |mut task| async move {
-        let mut frame = TrapFrame::new(0x1_0000_1000, 0x0);
+    let second = tasks.create(page::current_ctx(), |task| async move {
+        let mut task = task.setup(TrapFrame::new(0x1_0000_1000, 0x0));
+
         loop {
-            let new_frame = task.step(frame).await;
-            frame = new_frame;
+            task.run().await;
         }
     })?;
 
@@ -255,34 +255,48 @@ unsafe fn waker_wake_by_ref(_waker: *const ()) {
 
 unsafe fn waker_drop(_waker: *const ()) {}
 
-pub struct TaskHandle {
+pub struct TaskEmbryo {
     task_state: Arc<Mutex<TaskState>>,
 }
 
-impl TaskHandle {
-    pub fn step(&mut self, frame: TrapFrame) -> Step {
-        *self.task_state.lock() = TaskState::User(frame);
-        Step {
-            task_state: self.task_state.clone(),
-            phantom: PhantomData,
+impl TaskEmbryo {
+    pub fn setup(self, trap_frame: TrapFrame) -> TaskRun {
+        TaskRun {
+            task_state: self.task_state,
+            trap_frame: trap_frame,
         }
     }
 }
 
-pub struct Step<'a> {
+pub struct TaskRun {
     task_state: Arc<Mutex<TaskState>>,
-    phantom: PhantomData<&'a mut TaskHandle>,
+    trap_frame: TrapFrame,
 }
 
-impl<'a> Future for Step<'a> {
-    type Output = TrapFrame;
+impl TaskRun {
+    pub fn run(&mut self) -> TaskResume {
+        *self.task_state.lock() = TaskState::User(self.trap_frame.clone());
+
+        TaskResume { task_run: self }
+    }
+}
+
+pub struct TaskResume<'a> {
+    task_run: &'a mut TaskRun,
+}
+
+impl<'a> Future for TaskResume<'a> {
+    type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut core::task::Context) -> Poll<Self::Output> {
-        match *self.task_state.lock() {
-            TaskState::Entry(ref frame) => Poll::Ready(frame.clone()),
-            TaskState::Wake => Poll::Pending,
-            TaskState::User(_) => Poll::Pending,
+        let frame = match *self.task_run.task_state.lock() {
+            TaskState::Entry(ref frame) => frame.clone(),
+            TaskState::Wake => return Poll::Pending,
+            TaskState::User(_) => return Poll::Pending,
             TaskState::Sleep => panic!("task state should not be Sleep"),
-        }
+        };
+
+        self.task_run.trap_frame = frame;
+        Poll::Ready(())
     }
 }
