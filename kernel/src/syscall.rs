@@ -9,8 +9,8 @@ use crate::mem::page::{self, PAGE_SIZE, PageFlags, MapError};
 use crate::mem::phys::{self};
 use interface::{OK, Syscall, SysError, SysResult};
 
-pub fn dispatch(frame: &mut TrapFrame) {
-    let result = dispatch0(&mut frame.regs);
+pub async fn dispatch(frame: &mut TrapFrame) {
+    let result = dispatch0(&mut frame.regs).await;
 
     frame.regs.rax = match result {
         Ok(()) => OK,
@@ -18,7 +18,7 @@ pub fn dispatch(frame: &mut TrapFrame) {
     };
 }
 
-fn dispatch0(regs: &mut Registers) -> SysResult<()> {
+async fn dispatch0(regs: &mut Registers) -> SysResult<()> {
     let syscall = regs.rax
         .try_into()
         .map_err(|()| SysError::BadSyscall)?;

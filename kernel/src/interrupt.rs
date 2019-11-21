@@ -168,7 +168,7 @@ pub extern "C" fn interrupt(frame: &mut TrapFrame) {
             fault(frame, flags, address);
         }
         Interrupt::Syscall => {
-            syscall::dispatch(frame);
+            unsafe { task::dispatch_syscall(frame); }
         }
         Interrupt::Other(vector) => {
             panic!("unexpected interrupt: {:#2x}", vector);

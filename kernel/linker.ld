@@ -1,6 +1,13 @@
 ENTRY(start)
 
 SECTIONS {
+    .tbss : ALIGN(0x1000) {
+        _tbss = .;
+        *(.tbss)
+        *(.tbss.*)
+        _tbss_end = .;
+    }
+
     . = 0xffff800000000000;
 
     _base = .;
@@ -41,6 +48,11 @@ SECTIONS {
         *(.bss)
         *(.bss.*)
     }
+
+    . = ALIGN(0x1000);
+    _tls_storage = .;
+    . += (_tbss_end - _tbss);
+    _tls_storage_end = .;
 
     .stack : ALIGN(0x1000) {
         *(.stack)
