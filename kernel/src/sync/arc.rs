@@ -1,5 +1,5 @@
 use core::alloc::Layout;
-use core::marker::Unsize;
+use core::marker::{Unpin, Unsize};
 use core::ops::{Deref, CoerceUnsized};
 use core::ptr::{self, NonNull};
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -17,6 +17,8 @@ pub struct Arc<T: ?Sized> {
 }
 
 impl<T: ?Sized + Unsize<U>, U: ?Sized> CoerceUnsized<Arc<U>> for Arc<T> {}
+
+impl<T> Unpin for Arc<T> {}
 
 impl<T> Arc<T> {
     pub fn new(object: T) -> Result<Arc<T>, MemoryExhausted> {
