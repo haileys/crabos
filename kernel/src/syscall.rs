@@ -4,7 +4,7 @@ use bitflags::bitflags;
 
 use crate::{critical, println};
 use crate::interrupt::{TrapFrame, Registers};
-use crate::mem::user;
+use crate::mem::user::{self, PageRange};
 use crate::mem::page::{self, PAGE_SIZE, PageFlags, MapError};
 use crate::mem::phys::{self};
 use interface::{OK, Syscall, SysError, SysResult};
@@ -54,19 +54,20 @@ fn alloc_page(virtual_addr: u64, page_count: u64, flags: u64) -> SysResult<()> {
 
     let crit = critical::begin();
 
-    user::validate_page_align(virtual_addr)?;
-    user::validate_available(virtual_addr, page_count * PAGE_SIZE as u64, &crit)?;
+    let page_range = PageRange::new(virtual_addr, page_count)?;
+    user::validate_available(&page_range, &crit)?;
 
     let flags = UserPageFlags::from_bits(flags)
         .ok_or(SysError::IllegalValue)?;
 
     let flags = PageFlags::from(flags);
 
-    for i in 0..page_count {
+    for addr in page_range.pages() {
+        // TOOD - handle erroring here leaving previously allocated pages mapped
         let phys = phys::alloc()
             .map_err(|_| SysError::MemoryExhausted)?;
 
-        let addr = (virtual_addr + i * PAGE_SIZE as u64) as *mut u8;
+        let addr = addr as *mut u8;
 
         // Safety: we validated that this will not violate kernel memory safety
         // We do not guarantee user space memory safety
@@ -95,11 +96,11 @@ fn release_page(virtual_addr: u64, page_count: u64) -> SysResult<()> {
 
     let crit = critical::begin();
 
-    user::validate_page_align(virtual_addr)?;
-    user::validate_map(virtual_addr, page_count * PAGE_SIZE as u64, PageFlags::empty(), &crit)?;
+    let page_range = PageRange::new(virtual_addr, page_count)?;
+    user::validate_map(&page_range, PageFlags::empty(), &crit)?;
 
-    for i in 0..page_count {
-        let addr = (virtual_addr + i * PAGE_SIZE as u64) as *mut u8;
+    for addr in page_range.pages() {
+        let addr = addr as *mut u8;
 
         // Safety: we validated that this will not violate kernel memory safety
         // We do not guarantee user space memory safety
@@ -119,16 +120,16 @@ fn modify_page(virtual_addr: u64, page_count: u64, flags: u64) -> SysResult<()> 
 
     let crit = critical::begin();
 
-    user::validate_page_align(virtual_addr)?;
-    user::validate_map(virtual_addr, page_count * PAGE_SIZE as u64, PageFlags::empty(), &crit)?;
+    let page_range = PageRange::new(virtual_addr, page_count)?;
+    user::validate_map(&page_range, PageFlags::empty(), &crit)?;
 
     let flags = UserPageFlags::from_bits(flags)
         .ok_or(SysError::IllegalValue)?;
 
     let flags = PageFlags::from(flags);
 
-    for i in 0..page_count {
-        let addr = (virtual_addr + i * PAGE_SIZE as u64) as *mut u8;
+    for addr in page_range.pages() {
+        let addr = addr as *mut u8;
 
         // Safety: we validated that this will not violate kernel memory safety
         // We do not guarantee user space memory safety
