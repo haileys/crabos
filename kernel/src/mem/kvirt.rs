@@ -55,8 +55,11 @@ impl PageAllocator {
             if let Some(mut page) = inner.free_page.take() {
                 unsafe {
                     inner.free_page = page.as_mut().next.take();
+
+                    // cast page to u8 to simplify write_bytes:
+                    let page = page.cast::<u8>();
                     ptr::write_bytes(page.as_ptr(), 0, PAGE_SIZE);
-                    return Ok(page.cast::<u8>());
+                    return Ok(page);
                 }
             }
         }
