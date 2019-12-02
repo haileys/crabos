@@ -162,8 +162,15 @@ impl Drop for Phys {
 pub unsafe fn init_ref_counts(_critical: &Critical) {
     // inc ref for all currently mapped pages
     page::each_phys(|raw_phys| {
-        inc_ref(raw_phys);
+        inc_ref_for_init(raw_phys);
     });
+
+    // inc ref count for pml4
+    {
+        let cr3;
+        unsafe { asm!("movq %cr3, $0" : "=r"(cr3)); }
+        inc_ref_for_init(RawPhys(cr3));
+    }
 
     REF_COUNT_ENABLED.store(true, Ordering::SeqCst);
 }
@@ -189,9 +196,14 @@ fn ref_count(raw: RawPhys) -> &'static AtomicUsize {
 fn inc_ref(raw: RawPhys) {
     if REF_COUNT_ENABLED.load(Ordering::SeqCst) {
         ref_count(raw)
-            // TODO - we can probably do better than SeqCst here:
             .fetch_add(1, Ordering::SeqCst);
     }
+}
+
+fn inc_ref_for_init(raw: RawPhys) {
+    // always inc ref count, this function is used from init_ref_counts
+    ref_count(raw)
+        .fetch_add(1, Ordering::SeqCst);
 }
 
 enum PhysStatus {
