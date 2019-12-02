@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr;
+use core::sync::atomic::{AtomicU64, Ordering};
 use core::task::{Poll, Context, Waker, RawWaker, RawWakerVTable};
 
 use alloc_collections::boxed::Box;
@@ -10,14 +11,18 @@ use alloc_collections::btree_map::BTreeMap;
 
 use crate::interrupt::TrapFrame;
 use crate::mem::MemoryExhausted;
+use crate::mem::fault::Flags;
 use crate::mem::kalloc::GlobalAlloc;
 use crate::page::{self, PageCtx};
 use crate::sync::{Arc, Mutex};
+use crate::util::EarlyInit;
 
 pub const SEG_UCODE: u16 = 0x1b;
 pub const SEG_UDATA: u16 = 0x23;
 
-static TASKS: Mutex<Option<Tasks>> = Mutex::new(None);
+static TASKS: EarlyInit<Mutex<BTreeMap<TaskId, TaskRef, GlobalAlloc>>> = EarlyInit::new();
+
+static CURRENT_TASK: Mutex<Option<TaskRef>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Ord)]
 pub struct TaskId(pub u64);
@@ -25,9 +30,7 @@ pub struct TaskId(pub u64);
 pub type TaskRef = Arc<Mutex<Task>>;
 
 pub struct Tasks {
-    map: BTreeMap<TaskId, TaskRef, GlobalAlloc>,
     current: Option<TaskRef>,
-    next_id: u64,
 }
 
 #[derive(Debug)]
@@ -47,52 +50,47 @@ pub struct Task {
     future: TaskFuture,
 }
 
-impl Tasks {
-    pub fn create<F, Fut>(&mut self, page_ctx: PageCtx, f: F) -> Result<TaskRef, MemoryExhausted>
-        where F: FnOnce(TaskEmbryo) -> Fut, Fut: Future<Output = ()> + 'static
-    {
-        let id = TaskId(self.next_id);
-        self.next_id += 1;
-
-        let task_state = Arc::new(Mutex::new(TaskState::Wake))?;
-
-        let future = Box::new(f(TaskEmbryo {
-            task_state: task_state.clone(),
-        })).map_err(|_| MemoryExhausted)?;
-
-        let future_obj = future as Box<dyn Future<Output = ()>, GlobalAlloc>;
-
-        // TODO - why doesn't Pin::new work?
-        let future_pin = unsafe { Pin::new_unchecked(future_obj) };
-
-        let task = Arc::new(Mutex::new(Task {
-            id,
-            page_ctx,
-            state: task_state,
-            future: Arc::new(Mutex::new(future_pin))?,
-        }))?;
-
-        self.map.insert(id, task.clone())
-            .map_err(|_| MemoryExhausted)?;
-
-        Ok(task)
-    }
+pub fn init() {
+    EarlyInit::set(&TASKS, Mutex::new(BTreeMap::new()));
 }
 
-pub unsafe fn start(f: impl FnOnce(&mut Tasks) -> Result<(), MemoryExhausted>)
-    -> Result<!, MemoryExhausted>
+fn alloc_task_id() -> TaskId {
+    static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
+    TaskId(NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst))
+}
+
+pub fn spawn<F, Fut>(page_ctx: PageCtx, f: F) -> Result<TaskRef, MemoryExhausted>
+    where F: FnOnce(TaskEmbryo) -> Fut, Fut: Future<Output = ()> + 'static
 {
-    let mut tasks = Tasks {
-        map: BTreeMap::new(),
-        current: None,
-        next_id: 1,
-    };
+    let task_state = Arc::new(Mutex::new(TaskState::Wake))?;
 
-    f(&mut tasks);
+    let future = Box::new(f(TaskEmbryo {
+        task_state: task_state.clone(),
+    })).map_err(|_| MemoryExhausted)?;
 
-    *TASKS.lock() = Some(tasks);
+    let future_obj = future as Box<dyn Future<Output = ()>, GlobalAlloc>;
 
-    // begin:
+    // TODO - why doesn't Pin::new work?
+    let future_pin = unsafe { Pin::new_unchecked(future_obj) };
+
+    let id = alloc_task_id();
+
+    let task = Arc::new(Mutex::new(Task {
+        id: id,
+        page_ctx: PageCtx::new()?,
+        state: task_state,
+        future: Arc::new(Mutex::new(future_pin))?,
+    }))?;
+
+    TASKS
+        .lock()
+        .insert(id, task.clone())
+        .map_err(|_| MemoryExhausted)?;
+
+    Ok(task)
+}
+
+pub unsafe fn start() -> ! {
     let mut frame = TrapFrame::new(0, 0);
     switch(&mut frame);
     asm!("
@@ -100,19 +98,17 @@ pub unsafe fn start(f: impl FnOnce(&mut Tasks) -> Result<(), MemoryExhausted>)
         jmp interrupt_return
     " :: "r"(&mut frame as *mut TrapFrame) :: "volatile");
 
-    loop {}
+    unreachable!()
 }
 
 pub unsafe fn switch(frame: &mut TrapFrame) {
     fn save_current_task(frame: &mut TrapFrame) -> TaskId {
         let mut tasks = TASKS.lock();
 
-        let tasks = tasks
-            .as_mut()
-            .expect("TASKS is not Some");
+        let current = CURRENT_TASK.lock();
 
         // save old context
-        match tasks.current {
+        match *current {
             Some(ref task) => {
                 let task = task.lock();
                 let mut state = task.state.lock();
@@ -138,13 +134,9 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
     fn find_next_work_item(previous_task_id: TaskId) -> (TaskId, WorkItem) {
         let mut tasks = TASKS.lock();
 
-        let tasks = tasks
-            .as_mut()
-            .expect("TASKS is not Some");
-
-        let next_tasks = tasks.map.range(previous_task_id..)
+        let next_tasks = tasks.range(previous_task_id..)
             .skip(1) // skip first task, it will always be `current_id`
-            .chain(tasks.map.range(..=previous_task_id));
+            .chain(tasks.range(..=previous_task_id));
 
         for (id, task) in next_tasks {
             let task_locked = task.lock();
@@ -155,12 +147,12 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
                     continue;
                 }
                 TaskState::SyscallEntry(_) | TaskState::Wake => {
-                    tasks.current = Some(task.clone());
+                    *CURRENT_TASK.lock() = Some(task.clone());
 
                     return (*id, WorkItem::Kernel(Arc::clone(&task_locked.future)));
                 }
                 TaskState::User(ref task_frame) => {
-                    tasks.current = Some(task.clone());
+                    *CURRENT_TASK.lock() = Some(task.clone());
 
                     return (*id, WorkItem::User(task_frame.clone()));
                 }
@@ -196,12 +188,10 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
 
 pub unsafe fn dispatch_syscall(frame: &mut TrapFrame) {
     {
-        let mut tasks = TASKS.lock();
+        let mut current_task = CURRENT_TASK.lock();
 
-        let mut current_task = tasks
-            .as_mut().expect("TASKS is Some")
-            .current
-            .as_mut().expect("tasks.current is Some")
+        let mut current_task = current_task
+            .as_mut().expect("CURRENT_TASK is Some")
             .lock();
 
         let previous_state = mem::replace(

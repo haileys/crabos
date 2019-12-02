@@ -23,14 +23,18 @@ mod device;
 mod interrupt;
 mod mem;
 mod panic;
+mod sched;
 mod sync;
 mod syscall;
 mod task;
+mod util;
 
 use core::ptr;
 
-use mem::phys;
+use interrupt::TrapFrame;
 use mem::page::{self, PageFlags};
+use mem::phys;
+use task::Trap;
 
 extern "C" {
     static mut _end: u8;
@@ -47,6 +51,8 @@ pub extern "C" fn main() -> ! {
         // init pit
         device::pit::init();
     }
+
+    task::init();
 
     let a_bin = include_bytes!("../../target/x86_64-kernel/userland/a.bin");
     let a_addr = 0x1_0000_0000 as *mut u8;
@@ -71,32 +77,29 @@ pub extern "C" fn main() -> ! {
 
         ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
 
-        task::start(|tasks| {
-            use task::Trap;
-            use interrupt::TrapFrame;
 
-            let init = tasks.create(page::current_ctx(), |task| async move {
-                let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
+        let init = task::spawn(page::current_ctx(), |task| async move {
+            let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
 
-                loop {
-                    match task.run().await {
-                        Trap::Syscall => {
-                            syscall::dispatch(task.trap_frame()).await;
-                        }
+            loop {
+                match task.run().await {
+                    Trap::Syscall => {
+                        syscall::dispatch(task.trap_frame()).await;
                     }
                 }
-            })?;
+            }
+        }).expect("task::spawn init");
 
-            let second = tasks.create(page::current_ctx(), |task| async move {
-                let mut task = task.setup(TrapFrame::new(b_addr as u64, 0x0));
+        let second = task::spawn(page::current_ctx(), |task| async move {
+            let mut task = task.setup(TrapFrame::new(b_addr as u64, 0x0));
 
-                loop {
-                    task.run().await;
-                }
-            })?;
+            loop {
+                task.run().await;
+            }
+        }).expect("task::spawn second");
 
-            Ok(())
-        }).expect("task::start");
+
+        task::start();
     }
 }
 
