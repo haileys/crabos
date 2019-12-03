@@ -61,41 +61,32 @@ pub extern "C" fn main() -> ! {
     let b_addr = 0x1_0000_1000 as *mut u8;
 
     unsafe {
-        let phys = phys::alloc()
-            .expect("phys::alloc");
-
-        page::map(phys, a_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
-            .expect("page::map");
-
-        ptr::copy(a_bin.as_ptr(), a_addr, a_bin.len());
-
-        let phys = phys::alloc()
-            .expect("phys::alloc");
-
-        page::map(phys, b_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
-            .expect("page::map");
-
-        ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
-
-
         let init = task::spawn(page::current_ctx(), |task| async move {
             let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
 
-            loop {
-                match task.run().await {
-                    Trap::Syscall => {
-                        syscall::dispatch(task.trap_frame()).await;
-                    }
-                }
-            }
+            let phys = phys::alloc()
+                .expect("phys::alloc");
+
+            page::map(phys, a_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
+                .expect("page::map");
+
+            ptr::copy(a_bin.as_ptr(), a_addr, a_bin.len());
+
+            task.run_loop();
         }).expect("task::spawn init");
 
         let second = task::spawn(page::current_ctx(), |task| async move {
             let mut task = task.setup(TrapFrame::new(b_addr as u64, 0x0));
 
-            loop {
-                task.run().await;
-            }
+            let phys = phys::alloc()
+                .expect("phys::alloc");
+
+            page::map(phys, b_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
+                .expect("page::map");
+
+            ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
+
+            task.run_loop();
         }).expect("task::spawn second");
 
 

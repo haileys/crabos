@@ -10,11 +10,12 @@ use alloc_collections::boxed::Box;
 use alloc_collections::btree_map::BTreeMap;
 
 use crate::interrupt::TrapFrame;
-use crate::mem::MemoryExhausted;
 use crate::mem::fault::Flags;
 use crate::mem::kalloc::GlobalAlloc;
+use crate::mem::MemoryExhausted;
 use crate::page::{self, PageCtx};
 use crate::sync::{Arc, Mutex};
+use crate::syscall;
 use crate::util::EarlyInit;
 
 pub const SEG_UCODE: u16 = 0x1b;
@@ -174,7 +175,6 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
                 }
             };
 
-            *CURRENT_TASK.lock() = Some(*id);
             return (*id, work_item);
         }
 
@@ -184,8 +184,20 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
     let mut previous_task_id = save_current_task(frame);
 
     loop {
-        match find_next_work_item(previous_task_id) {
-            (new_task_id, WorkItem::Kernel(future)) => {
+        let (task_id, work_item) = find_next_work_item(previous_task_id);
+
+        *CURRENT_TASK.lock() = Some(task_id);
+
+        let page_ctx = TASKS.lock()
+            .get(&task_id)
+            .expect("current task in TASKS")
+            .page_ctx
+            .clone();
+
+        unsafe { page::set_ctx(page_ctx); }
+
+        match work_item {
+            WorkItem::Kernel(future) => {
                 let waker = Waker::from_raw(RawWaker::new(ptr::null(), &RAW_WAKER_VTABLE));
                 let mut cx = Context::from_waker(&waker);
                 let mut fut = future.lock();
@@ -195,9 +207,9 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
                     Poll::Pending => {}
                 }
 
-                previous_task_id = Some(new_task_id);
+                previous_task_id = Some(task_id);
             }
-            (_, WorkItem::User(task_frame)) => {
+            WorkItem::User(task_frame) => {
                 *frame = task_frame;
                 return;
             }
@@ -284,6 +296,16 @@ impl TaskRun {
 
     pub fn trap_frame(&mut self) -> &mut TrapFrame {
         &mut self.trap_frame
+    }
+
+    pub async fn run_loop(&mut self) -> ! {
+        loop {
+            match self.run().await {
+                Trap::Syscall => {
+                    syscall::dispatch(self.trap_frame()).await;
+                }
+            }
+        }
     }
 }
 
