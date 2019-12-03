@@ -75,6 +75,7 @@ SECTIONS {
 
     /DISCARD/ : {
         *(.debug_abbrev)
+        *(.debug_aranges)
         *(.debug_frame)
         *(.debug_info)
         *(.debug_line)
