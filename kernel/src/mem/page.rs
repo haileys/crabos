@@ -52,8 +52,13 @@ impl PageCtx {
 
         unsafe {
             let crit = critical::begin();
-            let pml4_map = temp_map::<PmlEntry>(pml4_raw, &crit);
-            ptr::copy(0xfffffffffffff800 as *const PmlEntry, pml4_map, 256);
+            let pml4_map = &mut *temp_map::<[PmlEntry; 512]>(pml4_raw, &crit);
+
+            ptr::copy(0xfffffffffffff800 as *const PmlEntry, pml4_map[256..511].as_mut_ptr(), 255);
+
+            // set up recursive map entry:
+            pml4_map[511] = PmlEntry(pml4_raw.0 | (PageFlags::PRESENT | PageFlags::WRITE).bits());
+
             temp_unmap(&crit);
         }
 
