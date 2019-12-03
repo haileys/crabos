@@ -20,18 +20,22 @@ use crate::util::EarlyInit;
 pub const SEG_UCODE: u16 = 0x1b;
 pub const SEG_UDATA: u16 = 0x23;
 
-static TASKS: EarlyInit<Mutex<BTreeMap<TaskId, TaskRef, GlobalAlloc>>> = EarlyInit::new();
+type TaskMap<V> = EarlyInit<Mutex<BTreeMap<TaskId, V, GlobalAlloc>>>;
 
-static CURRENT_TASK: Mutex<Option<TaskRef>> = Mutex::new(None);
+static TASKS: TaskMap<Task> = TaskMap::new();
+static TASK_STATES: TaskMap<TaskState> = TaskMap::new();
+static TASK_FUTURES: TaskMap<TaskFuture> = TaskMap::new();
+
+pub fn init() {
+    EarlyInit::set(&TASKS, Mutex::new(BTreeMap::new()));
+    EarlyInit::set(&TASK_STATES, Mutex::new(BTreeMap::new()));
+    EarlyInit::set(&TASK_FUTURES, Mutex::new(BTreeMap::new()));
+}
+
+static CURRENT_TASK: Mutex<Option<TaskId>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Eq, Ord)]
 pub struct TaskId(pub u64);
-
-pub type TaskRef = Arc<Mutex<Task>>;
-
-pub struct Tasks {
-    current: Option<TaskRef>,
-}
 
 #[derive(Debug)]
 pub enum TaskState {
@@ -46,48 +50,58 @@ type TaskFuture = Arc<Mutex<Pin<Box<dyn Future<Output = ()>, GlobalAlloc>>>>;
 pub struct Task {
     id: TaskId,
     page_ctx: PageCtx,
-    state: Arc<Mutex<TaskState>>,
-    future: TaskFuture,
 }
-
-pub fn init() {
-    EarlyInit::set(&TASKS, Mutex::new(BTreeMap::new()));
-}
-
 fn alloc_task_id() -> TaskId {
     static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
     TaskId(NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst))
 }
 
-pub fn spawn<F, Fut>(page_ctx: PageCtx, f: F) -> Result<TaskRef, MemoryExhausted>
+pub fn spawn<F, Fut>(page_ctx: PageCtx, f: F) -> Result<TaskId, MemoryExhausted>
     where F: FnOnce(TaskEmbryo) -> Fut, Fut: Future<Output = ()> + 'static
 {
-    let task_state = Arc::new(Mutex::new(TaskState::Wake))?;
-
-    let future = Box::new(f(TaskEmbryo {
-        task_state: task_state.clone(),
-    })).map_err(|_| MemoryExhausted)?;
-
-    let future_obj = future as Box<dyn Future<Output = ()>, GlobalAlloc>;
-
-    // TODO - why doesn't Pin::new work?
-    let future_pin = unsafe { Pin::new_unchecked(future_obj) };
-
     let id = alloc_task_id();
 
-    let task = Arc::new(Mutex::new(Task {
+    let state = TaskState::Wake;
+
+    let future = {
+        let future = Box::new(f(TaskEmbryo { task_id: id }))
+            .map_err(|_| MemoryExhausted)?;
+
+        let future_obj = future as Box<dyn Future<Output = ()>, GlobalAlloc>;
+
+        // TODO - why doesn't Pin::new work?
+        unsafe { Pin::new_unchecked(future_obj) }
+    };
+
+    let task = Task {
         id: id,
         page_ctx: PageCtx::new()?,
-        state: task_state,
-        future: Arc::new(Mutex::new(future_pin))?,
-    }))?;
+    };
 
-    TASKS
-        .lock()
-        .insert(id, task.clone())
-        .map_err(|_| MemoryExhausted)?;
+    // try inserting all task related data:
+    let result: Result<_, MemoryExhausted> = (|| {
+        TASK_STATES.lock().insert(id, state)
+            .map_err(|_| MemoryExhausted)?;
 
-    Ok(task)
+        TASK_FUTURES.lock().insert(id, Arc::new(Mutex::new(future))?)
+            .map_err(|_| MemoryExhausted)?;
+
+        TASKS.lock().insert(id, task)
+            .map_err(|_| MemoryExhausted)?;
+
+        Ok(())
+    })();
+
+    // roll back inserts if any error:
+    match result {
+        Ok(()) => Ok(id),
+        Err(_) => {
+            TASKS.lock().remove(&id);
+            TASK_FUTURES.lock().remove(&id);
+            TASK_STATES.lock().remove(&id);
+            Err(MemoryExhausted)
+        }
+    }
 }
 
 pub unsafe fn start() -> ! {
@@ -102,28 +116,25 @@ pub unsafe fn start() -> ! {
 }
 
 pub unsafe fn switch(frame: &mut TrapFrame) {
-    fn save_current_task(frame: &mut TrapFrame) -> TaskId {
+    fn save_current_task(frame: &mut TrapFrame) -> Option<TaskId> {
         let mut tasks = TASKS.lock();
 
-        let current = CURRENT_TASK.lock();
+        let current = (*CURRENT_TASK.lock())?;
 
-        // save old context
-        match *current {
-            Some(ref task) => {
-                let task = task.lock();
-                let mut state = task.state.lock();
-                match *state {
-                    TaskState::User(ref mut task_frame) => {
-                        *task_frame = frame.clone()
-                    }
-                    _ => {}
-                }
-                task.id
+        let mut task_states = TASK_STATES.lock();
+
+        let state = task_states
+            .get_mut(&current)
+            .expect("task id not in TASK_STATES");
+
+        match *state {
+            TaskState::User(ref mut task_frame) => {
+                *task_frame = frame.clone();
             }
-            None => {
-                TaskId(0)
-            }
+            _ => {}
         }
+
+        Some(current)
     }
 
     enum WorkItem {
@@ -131,32 +142,40 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
         User(TrapFrame),
     }
 
-    fn find_next_work_item(previous_task_id: TaskId) -> (TaskId, WorkItem) {
+    fn find_next_work_item(previous_task_id: Option<TaskId>) -> (TaskId, WorkItem) {
         let mut tasks = TASKS.lock();
+
+        let previous_task_id = previous_task_id.unwrap_or(TaskId(0));
 
         let next_tasks = tasks.range(previous_task_id..)
             .skip(1) // skip first task, it will always be `current_id`
             .chain(tasks.range(..=previous_task_id));
 
         for (id, task) in next_tasks {
-            let task_locked = task.lock();
-            let state = task_locked.state.lock();
+            let mut task_states = TASK_STATES.lock();
 
-            match *state {
+            let state = task_states.get_mut(&id)
+                .expect("id not in TASK_STATES");
+
+            let work_item = match *state {
                 TaskState::Sleep => {
                     continue;
                 }
                 TaskState::SyscallEntry(_) | TaskState::Wake => {
-                    *CURRENT_TASK.lock() = Some(task.clone());
+                    let future = TASK_FUTURES.lock()
+                        .get(&id)
+                        .cloned()
+                        .expect("id not in TASK_FUTURES");
 
-                    return (*id, WorkItem::Kernel(Arc::clone(&task_locked.future)));
+                    WorkItem::Kernel(future)
                 }
                 TaskState::User(ref task_frame) => {
-                    *CURRENT_TASK.lock() = Some(task.clone());
-
-                    return (*id, WorkItem::User(task_frame.clone()));
+                    WorkItem::User(task_frame.clone())
                 }
-            }
+            };
+
+            *CURRENT_TASK.lock() = Some(*id);
+            return (*id, work_item);
         }
 
         panic!("there should always be a task ready to run!");
@@ -176,7 +195,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
                     Poll::Pending => {}
                 }
 
-                previous_task_id = new_task_id;
+                previous_task_id = Some(new_task_id);
             }
             (_, WorkItem::User(task_frame)) => {
                 *frame = task_frame;
@@ -188,22 +207,24 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
 
 pub unsafe fn dispatch_syscall(frame: &mut TrapFrame) {
     {
-        let mut current_task = CURRENT_TASK.lock();
+        let mut current_task = CURRENT_TASK.lock()
+            .expect("no current task for syscall entry");
 
-        let mut current_task = current_task
-            .as_mut().expect("CURRENT_TASK is Some")
-            .lock();
+        let mut task_states = TASK_STATES.lock();
 
-        let previous_state = mem::replace(
-            &mut *current_task.state.lock(),
-            TaskState::SyscallEntry(frame.clone()));
+        let task_state = task_states.get_mut(&current_task)
+            .expect("current task in TASK_STATES");
 
-        match previous_state {
-            TaskState::User(_) => { /* ok */ }
+        match task_state {
+            TaskState::User(_) => {
+                // ok
+            }
             _ => {
-                panic!("syscall arrived from kernel context! task state: {:?}", previous_state);
+                panic!("syscall arrived from kernel context! task state: {:?}", task_state);
             }
         }
+
+        *task_state = TaskState::SyscallEntry(frame.clone());
     }
 
     // TODO don't switch immediately but process syscall on this task first:
@@ -232,26 +253,31 @@ unsafe fn waker_wake_by_ref(_waker: *const ()) {
 unsafe fn waker_drop(_waker: *const ()) {}
 
 pub struct TaskEmbryo {
-    task_state: Arc<Mutex<TaskState>>,
+    task_id: TaskId,
 }
 
 impl TaskEmbryo {
     pub fn setup(self, trap_frame: TrapFrame) -> TaskRun {
         TaskRun {
-            task_state: self.task_state,
+            task_id: self.task_id,
             trap_frame: trap_frame,
         }
     }
 }
 
 pub struct TaskRun {
-    task_state: Arc<Mutex<TaskState>>,
+    task_id: TaskId,
     trap_frame: TrapFrame,
 }
 
 impl TaskRun {
     pub fn run(&mut self) -> TaskResume {
-        *self.task_state.lock() = TaskState::User(self.trap_frame.clone());
+        let mut task_states = TASK_STATES.lock();
+
+        let mut task_state = task_states.get_mut(&self.task_id)
+            .expect("id not in TASK_STATES");
+
+        *task_state = TaskState::User(self.trap_frame.clone());
 
         TaskResume { task_run: self }
     }
@@ -273,7 +299,12 @@ impl<'a> Future for TaskResume<'a> {
     type Output = Trap;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut core::task::Context) -> Poll<Self::Output> {
-        let (trap, frame) = match *self.task_run.task_state.lock() {
+        let mut task_states = TASK_STATES.lock();
+
+        let task_state = task_states.get_mut(&self.task_run.task_id)
+            .expect("id not in TASK_STATES");
+
+        let (trap, frame) = match *task_state {
             TaskState::SyscallEntry(ref frame) => (Trap::Syscall, frame.clone()),
             TaskState::Wake => return Poll::Pending,
             TaskState::User(_) => return Poll::Pending,
