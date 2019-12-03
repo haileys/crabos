@@ -48,6 +48,9 @@ pub extern "C" fn main() -> ! {
         // perform follow up init for phys allocator
         phys::init_ref_counts(&crit);
 
+        // init kernel PML4 entries
+        mem::page::init_kernel_pml4_entries(&crit);
+
         // init pit
         device::pit::init();
     }

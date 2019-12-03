@@ -67,6 +67,20 @@ impl PageCtx {
     }
 }
 
+pub unsafe fn init_kernel_pml4_entries(crit: &Critical) {
+    let kernel_start = 0xfffffffffffff800 as *mut PmlEntry;
+
+    for i in 0..255 {
+        let ent = kernel_start.offset(i);
+
+        if (*ent).0 == 0 {
+            let tab = phys::alloc().expect("phys::alloc");
+
+            *ent = PmlEntry(tab.into_raw().0 | (PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER).bits());
+        }
+    }
+}
+
 pub fn current_ctx() -> PageCtx {
     let cr3;
     unsafe { asm!("movq %cr3, $0" : "=r"(cr3)); }
@@ -216,6 +230,8 @@ pub fn is_mapped(virt: *const u8) -> bool {
 }
 
 pub unsafe fn map(phys: Phys, virt: *mut u8, flags: PageFlags) -> Result<(), MapError> {
+    crate::println!("page::map");
+
     critical::section(|| {
         let virt = virt as u64;
 
