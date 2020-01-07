@@ -1,6 +1,4 @@
-use core::future::{self, Future};
-use core::marker::PhantomData;
-use core::mem;
+use core::future::Future;
 use core::pin::Pin;
 use core::ptr;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -10,7 +8,6 @@ use alloc_collections::boxed::Box;
 use alloc_collections::btree_map::BTreeMap;
 
 use crate::interrupt::TrapFrame;
-use crate::mem::fault::Flags;
 use crate::mem::kalloc::GlobalAlloc;
 use crate::mem::MemoryExhausted;
 use crate::page::{self, PageCtx};
@@ -52,12 +49,13 @@ pub struct Task {
     id: TaskId,
     page_ctx: PageCtx,
 }
+
 fn alloc_task_id() -> TaskId {
     static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
     TaskId(NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst))
 }
 
-pub fn spawn<F, Fut>(page_ctx: PageCtx, f: F) -> Result<TaskId, MemoryExhausted>
+pub fn spawn<F, Fut>(f: F) -> Result<TaskId, MemoryExhausted>
     where F: FnOnce(TaskEmbryo) -> Fut, Fut: Future<Output = ()> + 'static
 {
     let id = alloc_task_id();
@@ -118,8 +116,6 @@ pub unsafe fn start() -> ! {
 
 pub unsafe fn switch(frame: &mut TrapFrame) {
     fn save_current_task(frame: &mut TrapFrame) -> Option<TaskId> {
-        let mut tasks = TASKS.lock();
-
         let current = (*CURRENT_TASK.lock())?;
 
         let mut task_states = TASK_STATES.lock();
@@ -144,7 +140,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
     }
 
     fn find_next_work_item(previous_task_id: Option<TaskId>) -> (TaskId, WorkItem) {
-        let mut tasks = TASKS.lock();
+        let tasks = TASKS.lock();
 
         let previous_task_id = previous_task_id.unwrap_or(TaskId(0));
 
@@ -152,7 +148,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
             .skip(1) // skip first task, it will always be `current_id`
             .chain(tasks.range(..=previous_task_id));
 
-        for (id, task) in next_tasks {
+        for (id, _) in next_tasks {
             let mut task_states = TASK_STATES.lock();
 
             let state = task_states.get_mut(&id)
@@ -194,7 +190,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
             .page_ctx
             .clone();
 
-        unsafe { page::set_ctx(page_ctx); }
+        page::set_ctx(page_ctx);
 
         match work_item {
             WorkItem::Kernel(future) => {
@@ -219,7 +215,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
 
 pub unsafe fn dispatch_syscall(frame: &mut TrapFrame) {
     {
-        let mut current_task = CURRENT_TASK.lock()
+        let current_task = CURRENT_TASK.lock()
             .expect("no current task for syscall entry");
 
         let mut task_states = TASK_STATES.lock();
@@ -294,7 +290,7 @@ impl TaskRun {
     pub fn run(&mut self) -> TaskResume {
         let mut task_states = TASK_STATES.lock();
 
-        let mut task_state = task_states.get_mut(&self.task_id)
+        let task_state = task_states.get_mut(&self.task_id)
             .expect("id not in TASK_STATES");
 
         *task_state = TaskState::User(self.trap_frame.clone());
@@ -328,7 +324,7 @@ pub struct TaskResume<'a> {
 impl<'a> Future for TaskResume<'a> {
     type Output = Trap;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut core::task::Context) -> Poll<Self::Output> {
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut core::task::Context) -> Poll<Self::Output> {
         let mut task_states = TASK_STATES.lock();
 
         let task_state = task_states.get_mut(&self.task_run.task_id)

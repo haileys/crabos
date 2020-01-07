@@ -1,4 +1,3 @@
-use core::ops::{Deref, DerefMut};
 use core::ptr;
 
 use bitflags::bitflags;
@@ -67,7 +66,7 @@ impl PageCtx {
     }
 }
 
-pub unsafe fn init_kernel_pml4_entries(crit: &Critical) {
+pub unsafe fn init_kernel_pml4_entries(_crit: &Critical) {
     let kernel_start = 0xfffffffffffff800 as *mut PmlEntry;
 
     for i in 0..255 {

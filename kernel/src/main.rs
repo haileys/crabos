@@ -34,7 +34,6 @@ use core::ptr;
 use interrupt::TrapFrame;
 use mem::page::{self, PageFlags};
 use mem::phys;
-use task::Trap;
 
 extern "C" {
     static mut _end: u8;
@@ -64,7 +63,7 @@ pub extern "C" fn main() -> ! {
     let b_addr = 0x1_0000_1000 as *mut u8;
 
     unsafe {
-        let init = task::spawn(page::current_ctx(), |task| async move {
+        task::spawn(|task| async move {
             let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
 
             let phys = phys::alloc()
@@ -78,7 +77,7 @@ pub extern "C" fn main() -> ! {
             task.run_loop().await;
         }).expect("task::spawn init");
 
-        let second = task::spawn(page::current_ctx(), |task| async move {
+        task::spawn(|task| async move {
             let mut task = task.setup(TrapFrame::new(b_addr as u64, 0x0));
 
             let phys = phys::alloc()

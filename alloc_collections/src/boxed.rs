@@ -2,7 +2,6 @@ use core::alloc::{AllocErr, Layout};
 use core::marker::{PhantomData, Unpin, Unsize};
 use core::mem;
 use core::ops::{Deref, DerefMut, CoerceUnsized};
-use core::pin::Pin;
 use core::ptr::{self, NonNull, Unique};
 
 use crate::glue::GlobalAlloc;

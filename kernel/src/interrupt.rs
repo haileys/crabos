@@ -3,7 +3,6 @@ use x86_64::registers::control::Cr2;
 use x86_64::registers::rflags::RFlags;
 
 use crate::task::{self, SEG_UCODE, SEG_UDATA};
-use crate::syscall;
 
 pub const IRQ_BASE: u8 = 0x20;
 

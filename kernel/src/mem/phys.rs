@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::critical::{self, Critical};
 use crate::mem::{zero, MemoryExhausted};
-use crate::mem::page::{self, PAGE_SIZE, PageFlags, TempMap};
+use crate::mem::page::{self, PAGE_SIZE, PageFlags};
 use crate::sync::Mutex;
 
 extern "C" {
@@ -87,7 +87,7 @@ fn alloc_freelist() -> Option<Phys> {
             let crit = critical::begin();
             let phys = Phys::new(phys);
 
-            let mut mapped = page::temp_map::<Option<RawPhys>>(RawPhys(phys.0), &crit);
+            let mapped = page::temp_map::<Option<RawPhys>>(RawPhys(phys.0), &crit);
 
             // pull linked next free phys out:
             *next_free = (*mapped.ptr()).take();
@@ -144,7 +144,7 @@ impl Drop for Phys {
 
                 unsafe {
                     let crit = critical::begin();
-                    let mut link = page::temp_map::<Option<RawPhys>>(RawPhys(self.0), &crit);
+                    let link = page::temp_map::<Option<RawPhys>>(RawPhys(self.0), &crit);
                     ptr::write(link.ptr(), next_free.take());
                 }
 
@@ -163,7 +163,7 @@ pub unsafe fn init_ref_counts(_critical: &Critical) {
     // inc ref count for pml4
     {
         let cr3;
-        unsafe { asm!("movq %cr3, $0" : "=r"(cr3)); }
+        asm!("movq %cr3, $0" : "=r"(cr3));
         inc_ref_for_init(RawPhys(cr3));
     }
 

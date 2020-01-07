@@ -5,7 +5,7 @@ use bitflags::bitflags;
 use crate::{critical, println};
 use crate::interrupt::{TrapFrame, Registers};
 use crate::mem::user::{self, PageRange};
-use crate::mem::page::{self, PAGE_SIZE, PageFlags, MapError};
+use crate::mem::page::{self, PageFlags, MapError};
 use crate::mem::phys::{self};
 use interface::{OK, Syscall, SysError, SysResult};
 
