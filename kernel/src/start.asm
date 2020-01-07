@@ -6,7 +6,7 @@ extern _base
 extern _bss
 extern _rodata_end
 extern _bss_end
-extern _tls_storage
+extern _tls_end
 extern main
 extern phys_init
 extern isrs_init
@@ -140,7 +140,7 @@ higher_half:
 
     ; set up TLS
     mov ecx, 0xc0000100 ; MSR_FS_BASE
-    mov rax, _tls_storage
+    mov rax, tcb
     mov rdx, rax
     shr rdx, 32
     wrmsr
@@ -214,6 +214,10 @@ gdt:
     .tss_base_32_63 dd 0
     .tss_reserved   dd 0
 .end:
+
+tcb:
+    ; tcb+0 points to end of TLS block
+    dq _tls_end
 
 global tss
 tss:
