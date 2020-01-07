@@ -1,3 +1,4 @@
+use core::ops::{Deref, DerefMut};
 use core::ptr;
 
 use bitflags::bitflags;
@@ -41,7 +42,7 @@ bitflags! {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PageCtx {
     pml4: Phys,
 }
@@ -52,14 +53,13 @@ impl PageCtx {
 
         unsafe {
             let crit = critical::begin();
-            let pml4_map = &mut *temp_map::<[PmlEntry; 512]>(pml4_raw, &crit);
+            let pml4_map = temp_map::<[PmlEntry; 512]>(pml4_raw, &crit);
+            let pml4 = &mut *pml4_map.ptr();
 
-            ptr::copy(0xfffffffffffff800 as *const PmlEntry, pml4_map[256..511].as_mut_ptr(), 255);
+            ptr::copy(0xfffffffffffff800 as *const PmlEntry, pml4[256..511].as_mut_ptr(), 255);
 
             // set up recursive map entry:
-            pml4_map[511] = PmlEntry(pml4_raw.0 | (PageFlags::PRESENT | PageFlags::WRITE).bits());
-
-            temp_unmap(&crit);
+            pml4[511] = PmlEntry(pml4_raw.0 | (PageFlags::PRESENT /*| PageFlags::WRITE*/).bits());
         }
 
         let pml4 = unsafe { Phys::from_raw(pml4_raw) };
@@ -92,6 +92,8 @@ pub fn current_ctx() -> PageCtx {
 pub unsafe fn set_ctx(ctx: PageCtx) {
     let old_cr3;
     asm!("movq %cr3, $0" : "=r"(old_cr3));
+
+    crate::println!("page::set_ctx: {:x?}, old_cr3 = {:x?}", ctx, old_cr3);
 
     let new_cr3 = ctx.pml4.into_raw();
     asm!("movq $0, %cr3" :: "r"(new_cr3));
@@ -172,9 +174,32 @@ pub fn invlpg(virt: *mut u8) {
     unsafe { asm!("invlpg ($0)" :: "r"(virt) : "memory" : "volatile"); }
 }
 
-// the existence of a reference to CriticalLock proves we're in a critical
+pub struct TempMap<'a, T> {
+    ptr: *mut T,
+    _critical: &'a Critical,
+}
+
+impl<'a, T> TempMap<'a, T> {
+    pub fn ptr(&self) -> *mut T {
+        self.ptr
+    }
+}
+
+impl<'a, T> Drop for TempMap<'a, T> {
+    fn drop(&mut self) {
+        unsafe { temp_reset(); }
+    }
+}
+
+pub(super) unsafe fn temp_reset() {
+    let virt = &mut temp_page as *mut u8;
+    *pml1_entry(CURRENT_PML, virt as u64) = PmlEntry(0);
+    invlpg(virt);
+}
+
+// the existence of a reference to Critical proves we're in a critical
 // section:
-pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> *mut T {
+pub unsafe fn temp_map<'a, T>(phys: RawPhys, critical: &'a Critical) -> TempMap<'a, T> {
     let virt = &mut temp_page as *mut u8;
     let entry = pml1_entry(CURRENT_PML, virt as u64);
 
@@ -185,13 +210,10 @@ pub unsafe fn temp_map<T>(phys: RawPhys, _critical: &Critical) -> *mut T {
     *entry = PmlEntry(phys.0 | (PageFlags::PRESENT | PageFlags::WRITE).bits());
     invlpg(virt);
 
-    virt as *mut T
-}
-
-pub unsafe fn temp_unmap(_critical: &Critical) {
-    let virt = &mut temp_page as *mut u8;
-    *pml1_entry(CURRENT_PML, virt as u64) = PmlEntry(0);
-    invlpg(virt);
+    TempMap {
+        ptr: virt as *mut T,
+        _critical: critical,
+    }
 }
 
 #[derive(Debug)]

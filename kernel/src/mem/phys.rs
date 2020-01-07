@@ -4,8 +4,8 @@ use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::critical::{self, Critical};
-use crate::mem::MemoryExhausted;
-use crate::mem::page::{self, PAGE_SIZE, PageFlags};
+use crate::mem::{zero, MemoryExhausted};
+use crate::mem::page::{self, PAGE_SIZE, PageFlags, TempMap};
 use crate::sync::Mutex;
 
 extern "C" {
@@ -61,7 +61,6 @@ impl Clone for Phys {
 
 impl Debug for Phys {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // unsafe { asm!("xchgw %bx, %bx"); }
         write!(f, "Phys(0x{:08x})", self.0)
     }
 }
@@ -88,15 +87,13 @@ fn alloc_freelist() -> Option<Phys> {
             let crit = critical::begin();
             let phys = Phys::new(phys);
 
-            let mapped = page::temp_map::<Option<RawPhys>>(RawPhys(phys.0), &crit);
+            let mut mapped = page::temp_map::<Option<RawPhys>>(RawPhys(phys.0), &crit);
 
             // pull linked next free phys out:
-            *next_free = (*mapped).take();
+            *next_free = (*mapped.ptr()).take();
 
             // zero page before returning:
-            ptr::write_bytes(mapped as *mut u64, 0, PAGE_SIZE / mem::size_of::<u64>());
-
-            page::temp_unmap(&crit);
+            zero(mapped.ptr() as *mut u8, PAGE_SIZE);
 
             phys
         }
@@ -119,8 +116,7 @@ fn alloc_new(regions: &mut [PhysRegion]) -> Result<Phys, MemoryExhausted> {
             let crit = critical::begin();
 
             let mapped = page::temp_map::<u64>(raw_phys, &crit);
-            ptr::write_bytes(mapped, 0, PAGE_SIZE / mem::size_of::<u64>());
-            page::temp_unmap(&crit);
+            zero(mapped.ptr() as *mut u8, PAGE_SIZE);
         }
 
         return Ok(phys);
@@ -148,9 +144,8 @@ impl Drop for Phys {
 
                 unsafe {
                     let crit = critical::begin();
-                    let link = page::temp_map::<Option<RawPhys>>(RawPhys(self.0), &crit);
-                    ptr::write(link, next_free.take());
-                    page::temp_unmap(&crit);
+                    let mut link = page::temp_map::<Option<RawPhys>>(RawPhys(self.0), &crit);
+                    ptr::write(link.ptr(), next_free.take());
                 }
 
                 *next_free = Some(RawPhys(self.0));
@@ -251,7 +246,7 @@ pub unsafe extern "C" fn phys_init(bios_memory_map: *const BiosMemoryRegion, reg
     crate::println!("Initialising physical page allocator...");
 
     // init temp mapping
-    page::temp_unmap(&critical::begin());
+    page::temp_reset();
 
     let mut phys_i = 0;
 
