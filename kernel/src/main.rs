@@ -75,7 +75,7 @@ pub extern "C" fn main() -> ! {
 
             ptr::copy(a_bin.as_ptr(), a_addr, a_bin.len());
 
-            task.run_loop();
+            task.run_loop().await;
         }).expect("task::spawn init");
 
         let second = task::spawn(page::current_ctx(), |task| async move {
@@ -89,7 +89,7 @@ pub extern "C" fn main() -> ! {
 
             ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
 
-            task.run_loop();
+            task.run_loop().await;
         }).expect("task::spawn second");
 
 
