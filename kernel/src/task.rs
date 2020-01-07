@@ -198,7 +198,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
 
         match work_item {
             WorkItem::Kernel(future) => {
-                let waker = Waker::from_raw(RawWaker::new(ptr::null(), &RAW_WAKER_VTABLE));
+                let waker = Waker::from_raw(task_waker_new(task_id));
                 let mut cx = Context::from_waker(&waker);
                 let mut fut = future.lock();
 
@@ -243,26 +243,34 @@ pub unsafe fn dispatch_syscall(frame: &mut TrapFrame) {
     switch(frame)
 }
 
-static RAW_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-    waker_clone,
-    waker_wake,
-    waker_wake_by_ref,
-    waker_drop,
+static TASK_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
+    task_waker_clone,
+    task_waker_wake,
+    task_waker_wake_by_ref,
+    task_waker_drop,
 );
 
-unsafe fn waker_clone(_waker: *const ()) -> RawWaker {
-    panic!("waker_clone");
+fn task_waker_new(task_id: TaskId) -> RawWaker {
+    RawWaker::new(task_id.0 as *const (), &TASK_WAKER_VTABLE)
 }
 
-unsafe fn waker_wake(_waker: *const ()) {
-    panic!("waker_wake");
+unsafe fn task_waker_clone(data: *const ()) -> RawWaker {
+    RawWaker::new(data, &TASK_WAKER_VTABLE)
 }
 
-unsafe fn waker_wake_by_ref(_waker: *const ()) {
-    panic!("waker_wake_by_ref");
+unsafe fn task_waker_wake(data: *const ()) {
+    let task_id = TaskId(data as u64);
+
+    if let Some(state) = TASK_STATES.lock().get_mut(&task_id) {
+        *state = TaskState::Wake;
+    }
 }
 
-unsafe fn waker_drop(_waker: *const ()) {}
+unsafe fn task_waker_wake_by_ref(data: *const ()) {
+    task_waker_wake(data);
+}
+
+unsafe fn task_waker_drop(_data: *const ()) {}
 
 pub struct TaskEmbryo {
     task_id: TaskId,
