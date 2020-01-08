@@ -54,6 +54,18 @@ pub extern "C" fn main() -> ! {
         device::pit::init();
     }
 
+    {
+        use device::ide::{IdeChannel, Device};
+
+        let ide = device::ide::IdeChannel::primary();
+        println!("detecting primary master...");
+        println!("---> {:?}", ide.detect(Device::Master));
+
+        let mut sector = [0u8; 512];
+        println!("read --> {:?}", ide.read_sectors(Device::Master, 1, &mut [&mut sector]));
+        println!("data: {:x?}", &sector[..]);
+    }
+
     task::init();
 
     let a_bin = include_bytes!("../../target/x86_64-kernel/userland/a.bin");
