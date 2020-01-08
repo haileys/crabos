@@ -49,7 +49,7 @@ impl SizeClass {
 
         for offset in (0..PAGE_SIZE).step_by(self.size) {
             let ptr = unsafe { NonNull::new_unchecked(new_page.add(offset)) };
-            unsafe { self.free(ptr); }
+            unsafe { self.add_free(ptr); }
         }
 
         Ok(self.free.take()
@@ -63,9 +63,7 @@ impl SizeClass {
         Ok(ptr)
     }
 
-    pub unsafe fn free(&mut self, ptr: NonNull<u8>) {
-        println!("Freeing in size class {}: {:x?}", self.size, ptr);
-
+    unsafe fn add_free(&mut self, ptr: NonNull<u8>) {
         let object = ptr.cast::<FreeObject>();
 
         let mut free = FreeObject { next: None };
@@ -73,6 +71,11 @@ impl SizeClass {
         ptr::write(object.as_ptr(), free);
 
         self.free.next = Some(object);
+    }
+
+    pub unsafe fn free(&mut self, ptr: NonNull<u8>) {
+        println!("Freeing in size class {}: {:x?}", self.size, ptr);
+        self.add_free(ptr);
     }
 
     pub fn fits(&self, layout: Layout) -> bool {
