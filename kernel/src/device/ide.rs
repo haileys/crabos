@@ -141,7 +141,7 @@ impl IdeIo {
         }
     }
 
-    fn wait_command(&self, status: AtaStatus) -> Result<AtaStatus, AtaError> {
+    fn wait_command(&self, required: AtaStatus) -> Result<AtaStatus, AtaError> {
         self.wait();
 
         loop {
@@ -159,7 +159,7 @@ impl IdeIo {
             //     return Err(self.error());
             // }
 
-            if status.contains(status) {
+            if status.contains(required) {
                 return Ok(status);
             }
         }
