@@ -1,5 +1,65 @@
 use arraystring::{ArrayString, typenum::U40};
+use core::sync::atomic::{AtomicBool, Ordering};
 use x86_64::instructions::port::Port;
+
+use crate::sync::{Mutex, MutexGuard};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Drive {
+    A,
+    B,
+}
+
+#[derive(Debug)]
+pub struct DriveBusy;
+
+pub struct IdeChannel {
+    a: AtomicBool,
+    b: AtomicBool,
+    io: Mutex<IdeIo>,
+}
+
+impl IdeChannel {
+    const fn new(io: IdeIo) -> Self {
+        IdeChannel {
+            a: AtomicBool::new(false),
+            b: AtomicBool::new(false),
+            io: Mutex::new(io),
+        }
+    }
+
+    fn busyness(&self, drive: Drive) -> &AtomicBool {
+        match drive {
+            Drive::A => &self.a,
+            Drive::B => &self.b,
+        }
+    }
+
+    pub fn open(&'static self, drive: Drive) -> Result<IdeDrive, DriveBusy> {
+        if self.busyness(drive).swap(true, Ordering::SeqCst) {
+            return Err(DriveBusy);
+        }
+
+        Ok(IdeDrive { channel: self, drive })
+    }
+}
+
+pub static PRIMARY: IdeChannel = IdeChannel::new(IdeIo {
+    base: 0x1f0,
+    control_base: 0x3f6,
+});
+
+pub struct IdeDrive {
+    channel: &'static IdeChannel,
+    drive: Drive,
+}
+
+impl Drop for IdeDrive {
+    fn drop(&mut self) {
+        self.channel.busyness(self.drive)
+            .store(false, Ordering::SeqCst)
+    }
+}
 
 bitflags::bitflags! {
     pub struct AtaStatus: u8 {
@@ -33,12 +93,12 @@ pub enum AtaCommand {
     Identify = 0xec,
 }
 
-struct IdePorts {
+struct IdeIo {
     base: u16,
     control_base: u16,
 }
 
-impl IdePorts {
+impl IdeIo {
     pub fn data(&self) -> Port<u16> {
         Port::new(self.base + 0)
     }
@@ -74,17 +134,61 @@ impl IdePorts {
     pub fn alternate_status_control(&self) -> Port<u8> {
         Port::new(self.control_base + 2)
     }
-}
 
-pub struct IdeChannel {
-    ports: IdePorts,
-}
+    pub fn wait(&self) {
+        for _ in 0..4 {
+            unsafe { self.alternate_status_control().read(); }
+        }
+    }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Device {
-    // I don't like this, TODO figure out better naming here
-    Master,
-    Slave,
+    fn wait_command(&self, status: AtaStatus) -> Result<AtaStatus, AtaError> {
+        self.wait();
+
+        loop {
+            let status = self.status();
+
+            if status.contains(AtaStatus::BUSY) {
+                continue;
+            }
+
+            if status.contains(AtaStatus::ERROR) {
+                return Err(self.error());
+            }
+
+            // if status.contains(AtaStatus::DRIVE_FAIL) {
+            //     return Err(self.error());
+            // }
+
+            if status.contains(status) {
+                return Ok(status);
+            }
+        }
+    }
+
+    fn status(&self) -> AtaStatus {
+        let status_raw = unsafe { self.command_status().read() };
+
+        // all bits are defined in AtaStatus, so from_bits_truncate is fine:
+        let status = AtaStatus::from_bits_truncate(status_raw);
+
+        crate::println!("ata status: {:x?} => {:x?}", status_raw, status);
+
+        status
+    }
+
+    fn error(&self) -> AtaError {
+        AtaError::from_bits_truncate(unsafe {
+            self.error_features().read()
+        })
+    }
+
+    fn read_pio_data(&self, buff: &mut Sector) {
+        for i in 0..256 {
+            let w = unsafe { self.data().read() };
+            buff[i * 2 + 0] = ((w >> 0) & 0xff) as u8;
+            buff[i * 2 + 1] = ((w >> 8) & 0xff) as u8;
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -99,94 +203,40 @@ pub enum DetectError {
     Ata(AtaError),
 }
 
-type Sector = [u8; 512];
+pub type Sector = [u8; 512];
 
-impl IdeChannel {
-    // TODO - use PCI to figure out the right ports
-    pub fn primary() -> Self {
-        IdeChannel {
-            ports: IdePorts {
-                base: 0x1f0,
-                control_base: 0x3f6,
-            },
-        }
-    }
+impl IdeDrive {
+    fn select(&self) -> MutexGuard<IdeIo> {
+        let ports = self.channel.io.lock();
 
-    fn select(&self, device: Device) {
         unsafe {
-            self.ports.device_select().write(match device {
-                Device::Master => 0xa0,
-                Device::Slave => 0xb0,
+            ports.device_select().write(match self.drive {
+                Drive::A => 0xe0,
+                Drive::B => 0xf0,
             });
         }
 
         // TODO can we do something other than just busy waiting?
-        self.wait_port_io();
+        ports.wait();
+
+        ports
     }
 
-    fn wait_port_io(&self) {
-        for _ in 0..4 {
-            unsafe { self.ports.alternate_status_control().read(); }
-        }
-    }
-
-    fn wait_command(&self) -> Result<AtaStatus, AtaError> {
-        self.wait_port_io();
-
-        loop {
-            let status = self.status();
-
-            if status.contains(AtaStatus::BUSY) {
-                continue;
-            }
-
-            if status.contains(AtaStatus::ERROR) {
-                return Err(self.error());
-            }
-
-            return Ok(status);
-        }
-    }
-
-    fn status(&self) -> AtaStatus {
-        let status_raw = unsafe { self.ports.command_status().read() };
-
-        // all bits are defined in AtaStatus, so from_bits_truncate is fine:
-        let status = AtaStatus::from_bits_truncate(status_raw);
-
-        crate::println!("ata status: {:x?} => {:x?}", status_raw, status);
-
-        status
-    }
-
-    fn error(&self) -> AtaError {
-        AtaError::from_bits_truncate(unsafe {
-            self.ports.error_features().read()
-        })
-    }
-
-    fn read_pio_data(&self, buff: &mut Sector) {
-        for i in 0..256 {
-            let w = unsafe { self.ports.data().read() };
-            buff[i * 2 + 0] = ((w >> 8) & 0xff) as u8;
-            buff[i * 2 + 1] = ((w >> 0) & 0xff) as u8;
-        }
-    }
-
-    pub fn detect(&self, device: Device) -> Result<Detect, DetectError> {
-        self.select(device);
+    pub fn detect(&self) -> Result<Detect, DetectError> {
+        let io = self.select();
 
         unsafe {
             // set addressing ports to 0
-            self.ports.seccount0().write(0);
-            self.ports.lba0().write(0);
-            self.ports.lba1().write(0);
-            self.ports.lba2().write(0);
+            io.seccount0().write(0);
+            io.lba0().write(0);
+            io.lba1().write(0);
+            io.lba2().write(0);
+            io.wait();
 
             // identify
-            self.ports.command_status().write(AtaCommand::Identify as u8);
+            io.command_status().write(AtaCommand::Identify as u8);
 
-            let status = self.wait_command()
+            let status = io.wait_command(AtaStatus::DRIVE_READY)
                 .map_err(DetectError::Ata)?;
 
             if status.is_empty() {
@@ -195,28 +245,22 @@ impl IdeChannel {
             }
 
             // check lba1 and lba2 to make sure this is an ATA device
-            if self.ports.lba1().read() != 0 || self.ports.lba2().read() != 0 {
+            if io.lba1().read() != 0 || io.lba2().read() != 0 {
                 return Err(DetectError::NotAta);
             }
 
-            /*
-            // poll for request ready to come up
-            self.wait_command()
-            loop {
-                let status = self.status();
-
-                if status.contains(AtaStatus::DATA_REQUEST_READY) {
-                    break;
-                }
-
-                if status.contains(AtaStatus::ERROR) {
-                    return Err(DetectError::Ata(self.error()));
-                }
-            }
-            */
-
             let mut identify_data = [0u8; 512];
-            self.read_pio_data(&mut identify_data);
+            io.read_pio_data(&mut identify_data);
+
+            // ASCII strings in the identify response are big endian
+            // https://www.win.tue.nl/~aeb/linux/Large-Disk-10.html
+            for idx in (20..96).step_by(2) {
+                let a = identify_data[idx + 0];
+                let b = identify_data[idx + 1];
+
+                identify_data[idx + 0] = b;
+                identify_data[idx + 1] = a;
+            }
 
             let model = {
                 let mut model = ArrayString::from_utf8(&identify_data[54..94])
@@ -233,8 +277,10 @@ impl IdeChannel {
         }
     }
 
-    pub fn read_sectors(&self, device: Device, lba: usize, buffs: &mut [&mut Sector]) -> Result<(), AtaError> {
-        if lba > 0x00ffffff {
+    pub fn read_sectors(&self, lba: usize, buffs: &mut [&mut Sector]) -> Result<(), AtaError> {
+        crate::println!("read_sectors({:x})", lba);
+
+        if lba > 0x00fffffe {
             panic!("cannot read lba > 0x00ffffff currently");
         }
 
@@ -244,20 +290,23 @@ impl IdeChannel {
 
         let lba = lba.to_le_bytes();
 
-        self.select(device);
+        let io = self.select();
+        io.wait_command(AtaStatus::empty())?;
 
         unsafe {
-            self.ports.error_features().write(0);
-            self.ports.seccount0().write(buffs.len() as u8);
-            self.ports.lba0().write(lba[0]);
-            self.ports.lba1().write(lba[1]);
-            self.ports.lba2().write(lba[2]);
-            self.ports.command_status().write(AtaCommand::ReadPio as u8);
+            io.error_features().write(0);
+            io.seccount0().write(buffs.len() as u8);
+            crate::println!("  lba: {:x?}", lba);
+            io.lba0().write(lba[0]);
+            io.lba1().write(lba[1]);
+            io.lba2().write(lba[2]);
+            io.wait_command(AtaStatus::DRIVE_READY)?;
+            io.command_status().write(AtaCommand::ReadPio as u8);
         }
 
         for buff in buffs {
-            self.wait_command()?;
-            self.read_pio_data(buff);
+            io.wait_command(AtaStatus::DATA_REQUEST_READY)?;
+            io.read_pio_data(buff);
         }
 
         Ok(())
