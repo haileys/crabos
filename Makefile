@@ -27,7 +27,7 @@ hdd.img: hdd.base.img target/loader/stage0.bin $(KERNEL_BIN)
 	cp hdd.base.img hdd.img
 	MTOOLSRC=mtoolsrc mformat C:
 	MTOOLSRC=mtoolsrc mcopy $(KERNEL_BIN) C:/KERNEL
-	dd if=target/loader/stage0.bin of=$@ bs=440 count=1 conv=notrunc,sync
+	dd if=target/loader/stage0.bin of=$@ bs=446 count=1 conv=notrunc,sync
 
 $(KERNEL_BIN): $(KERNEL_ELF)
 	x86_64-elf-objcopy -R .bss -R .stack -O binary $(KERNEL_ELF) $(KERNEL_BIN)

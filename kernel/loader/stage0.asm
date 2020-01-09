@@ -188,7 +188,7 @@ kernel_filename db "KERNEL     "
 
 kernel_seg dw KERNEL_PHYS_BASE >> 4
 
-times 0x1b8 - ($ - $$) db 0
+times 0x1be - ($ - $$) db 0
 
 SECTOR_SIZE         equ 512
 
