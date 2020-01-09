@@ -50,7 +50,7 @@ impl Mbr {
 }
 
 #[repr(packed)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct MbrEntry {
     status: u8,
     chs_first: (u8, u8, u8),
