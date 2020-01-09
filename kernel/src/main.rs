@@ -20,6 +20,7 @@ extern crate kernel_derive;
 mod console;
 mod critical;
 mod device;
+mod fs;
 mod interrupt;
 mod mem;
 mod panic;
@@ -30,6 +31,7 @@ mod task;
 mod util;
 
 use core::ptr;
+use core::str;
 
 use interrupt::TrapFrame;
 use mem::page::{self, PageFlags};
@@ -67,6 +69,7 @@ pub extern "C" fn main() -> ! {
             {
                 use device::ide::{self, Drive};
                 use device::mbr::Mbr;
+                use fs::fat16::Fat16;
 
                 let ide = ide::PRIMARY.open(Drive::A)
                     .expect("ide::open");
@@ -88,6 +91,10 @@ pub extern "C" fn main() -> ! {
 
                 let fat = Fat16::open(partitions.remove(0).expect("partitions[0]")).await
                     .expect("Fat16::open");
+
+                for entry in fat.root().read_entries().await.expect("read_entries") {
+                    println!("{:?}", str::from_utf8(entry.filename().as_slice()).expect("str::from_utf8"));
+                }
             }
 
             let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
