@@ -17,7 +17,7 @@ impl Mbr {
         Ok(Mbr { drive: Arc::new(drive)? })
     }
 
-    pub fn partitions(&self) -> Result<ArrayVec<[Option<Partition>; 4]>, AtaError> {
+    pub async fn partitions(&self) -> Result<ArrayVec<[Option<Partition>; 4]>, AtaError> {
         #[repr(packed)]
         struct RawMbr {
             pad: [u8; 0x1be],
@@ -25,7 +25,7 @@ impl Mbr {
         }
 
         let mut boot_sector = [0u8; 512];
-        self.drive.read_sectors(0, &mut [&mut boot_sector])?;
+        self.drive.read_sectors(0, &mut [&mut boot_sector]).await?;
 
         let mbr = unsafe { mem::transmute::<&[u8; 512], &RawMbr>(&boot_sector) };
 
@@ -68,13 +68,13 @@ pub struct Partition {
 }
 
 impl Partition {
-    pub fn read_sectors(&self, lba: usize, buffs: &mut [&mut Sector])
+    pub async fn read_sectors(&self, lba: usize, buffs: &mut [&mut Sector])
         -> Result<(), AtaError>
     {
         if lba + buffs.len() > self.sectors {
             panic!("would read beyond partition");
         }
 
-        self.drive.read_sectors(lba + self.lba, buffs)
+        self.drive.read_sectors(lba + self.lba, buffs).await
     }
 }

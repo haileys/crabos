@@ -222,7 +222,7 @@ impl IdeDrive {
         ports
     }
 
-    pub fn detect(&self) -> Result<Detect, DetectError> {
+    pub async fn detect(&self) -> Result<Detect, DetectError> {
         let io = self.select();
 
         unsafe {
@@ -277,7 +277,7 @@ impl IdeDrive {
         }
     }
 
-    pub fn read_sectors(&self, lba: usize, buffs: &mut [&mut Sector]) -> Result<(), AtaError> {
+    pub async fn read_sectors(&self, lba: usize, buffs: &mut [&mut Sector]) -> Result<(), AtaError> {
         crate::println!("read_sectors({:x})", lba);
 
         if lba > 0x00fffffe {

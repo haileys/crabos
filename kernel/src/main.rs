@@ -54,32 +54,6 @@ pub extern "C" fn main() -> ! {
         device::pit::init();
     }
 
-    {
-        use device::ide::{self, Drive};
-        use device::mbr::Mbr;
-
-        let ide = ide::PRIMARY.open(Drive::A)
-            .expect("ide::open");
-
-        println!("detecting primary master...");
-        println!("---> {:?}", ide.detect());
-
-        let mbr = Mbr::open(ide)
-            .expect("Mbr::open");
-
-        let mut partitions = mbr.partitions().expect("mbr.partitions");
-
-        for part in partitions.iter() {
-            if let Some(part) = part {
-                crate::println!("#{} - {}, {}", part.number, part.lba, part.sectors);
-            }
-        }
-
-        let mut sector = [0u8; 512];
-        println!("read --> {:?}", ide.read_sectors(Device::Master, 1, &mut [&mut sector]));
-        println!("data: {:x?}", &sector[..]);
-    }
-
     task::init();
 
     let a_bin = include_bytes!("../../target/x86_64-kernel/userland/a.bin");
@@ -90,6 +64,32 @@ pub extern "C" fn main() -> ! {
 
     unsafe {
         task::spawn(|task| async move {
+            {
+                use device::ide::{self, Drive};
+                use device::mbr::Mbr;
+
+                let ide = ide::PRIMARY.open(Drive::A)
+                    .expect("ide::open");
+
+                println!("detecting primary master...");
+                println!("---> {:?}", ide.detect().await);
+
+                let mbr = Mbr::open(ide)
+                    .expect("Mbr::open");
+
+                let mut partitions = mbr.partitions().await
+                    .expect("mbr.partitions");
+
+                for part in partitions.iter() {
+                    if let Some(part) = part {
+                        crate::println!("#{} - {}, {}", part.number, part.lba, part.sectors);
+                    }
+                }
+
+                let fat = Fat16::open(partitions.remove(0).expect("partitions[0]")).await
+                    .expect("Fat16::open");
+            }
+
             let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
 
             let phys = phys::alloc()
