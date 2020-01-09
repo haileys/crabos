@@ -45,6 +45,7 @@ pub enum TaskState {
 
 type TaskFuture = Arc<Mutex<Pin<Box<dyn Future<Output = ()>, GlobalAlloc>>>>;
 
+#[derive(Debug)]
 pub struct Task {
     id: TaskId,
     page_ctx: PageCtx,
@@ -145,7 +146,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
         let previous_task_id = previous_task_id.unwrap_or(TaskId(0));
 
         let next_tasks = tasks.range(previous_task_id..)
-            .skip(1) // skip first task, it will always be `current_id`
+            .filter(|(id, _)| **id != previous_task_id)
             .chain(tasks.range(..=previous_task_id));
 
         for (id, _) in next_tasks {
