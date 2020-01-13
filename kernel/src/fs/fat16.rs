@@ -1,10 +1,15 @@
+use core::future::Future;
+use core::iter;
 use core::mem;
 
 use arraystring::{ArrayString, typenum::U11};
 use arrayvec::ArrayVec;
+use futures::future;
+use futures::stream::{self, Stream, StreamExt, TryStream, TryStreamExt};
 
 use crate::device::ide::{AtaError, Sector};
 use crate::device::mbr::Partition;
+use crate::mem::kalloc::GlobalAlloc;
 use crate::sync::Arc;
 
 const DIR_ENTRY_SIZE: usize = 32;
@@ -30,9 +35,18 @@ pub enum FatError {
     Ata(AtaError),
 }
 
+impl From<AtaError> for FatError {
+    fn from(e: AtaError) -> FatError {
+        FatError::Ata(e)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct ClusterNumber(usize);
+
 impl Fat16 {
     pub async fn open(part: Partition) -> Result<Self, OpenError> {
-        let bpb = read_bpb(&part).await
+        let bpb = BiosParameterBlock::read(&part).await
             .map_err(OpenError::Ata)?;
 
         crate::println!("bpb: {:#x?}", bpb);
@@ -51,9 +65,65 @@ impl Fat16 {
     }
 }
 
+impl Filesystem {
+    async fn next_cluster(&self, cluster: ClusterNumber) -> Result<Option<ClusterNumber>, AtaError> {
+        const FAT_ENTRY_SIZE: usize = mem::size_of::<u16>();
+
+        let max_cluster = self.bpb.fat_sector_count() * SECTOR_SIZE / FAT_ENTRY_SIZE;
+
+        if cluster.0 >= max_cluster {
+            panic!("cluster out of bounds: {:?}", cluster);
+        }
+
+        let fat_entry_offset = cluster.0 * FAT_ENTRY_SIZE;
+
+        let fat_sector = self.bpb.first_fat_sector() +
+            fat_entry_offset / SECTOR_SIZE;
+
+        let sector_offset = fat_entry_offset % SECTOR_SIZE;
+
+        let mut buff: Sector = [0u8; 512];
+        self.part.read_sectors(fat_sector, &mut [&mut buff]).await?;
+
+        let next_lo = buff[sector_offset + 0];
+        let next_hi = buff[sector_offset + 1];
+        let next = u16::from_le_bytes([next_lo, next_hi]);
+
+        if next >= 0xfff8 {
+            Ok(None)
+        } else if next == 0xfff7 {
+            panic!("bad cluster in chain! what do here?");
+        } else {
+            Ok(Some(ClusterNumber(next as usize)))
+        }
+    }
+
+    fn cluster_chain(&self, start: ClusterNumber) -> impl Stream<Item = Result<ClusterNumber, AtaError>> + '_ {
+        stream::unfold(Some(start), move |cluster| async move {
+            match cluster {
+                Some(cluster) => {
+                    match self.next_cluster(cluster).await.transpose()? {
+                        Ok(next) => Some((Ok(cluster), Some(next))),
+                        Err(e) => Some((Err(e), None)),
+                    }
+                }
+                None => None,
+            }
+        })
+    }
+
+    fn sector_chain(&self, start: ClusterNumber) -> impl Stream<Item = Result<usize, AtaError>> + '_ {
+        self.cluster_chain(start)
+            .map(move |cluster| {
+                cluster.map(|cluster| stream::iter(self.bpb.cluster_sectors(cluster).map(Ok)))
+            })
+            .try_flatten()
+    }
+}
+
 enum DirectoryKind {
     Root,
-    Cluster(usize),
+    Cluster(ClusterNumber),
 }
 
 pub struct Directory {
@@ -62,26 +132,58 @@ pub struct Directory {
 }
 
 impl Directory {
-    /// TODO this only reads the first sector/cluster worth of entries:
-    pub async fn read_entries(&self) -> Result<ArrayVec<[DirectoryEntry; 16]>, FatError> {
-        let sector = match self.kind {
-            DirectoryKind::Root => self.fs.bpb.first_root_dir_sector(),
-            DirectoryKind::Cluster(number) => self.fs.bpb.first_cluster_sector(number),
-        };
+    fn directory_sectors(&self) -> impl TryStream<Ok = usize, Error = AtaError> + '_ {
+        match self.kind {
+            DirectoryKind::Root => {
+                let first_sector = self.fs.bpb.first_root_dir_sector();
+                let sector_count = self.fs.bpb.root_dir_sector_count();
+                let sectors = first_sector..(first_sector + sector_count);
 
-        let mut buff: Sector = [0u8; 512];
-        self.fs.part.read_sectors(sector, &mut [&mut buff])
-            .await
-            .map_err(FatError::Ata)?;
-
-        let entries = unsafe { mem::transmute::<&Sector, &[DirectoryEntry; 16]>(&buff) };
-
-        Ok(entries.iter()
-            .take_while(|entry| entry.basename[0] != 0) // end
-            .filter(|entry| entry.basename[0] != 0xef) // deleted file
-            .copied()
-            .collect::<ArrayVec<_>>())
+                stream::iter(sectors.into_iter().map(Ok))
+                    .left_stream()
+            }
+            DirectoryKind::Cluster(start) => {
+                self.fs.sector_chain(start)
+                    .right_stream()
+            }
+        }
     }
+
+    /// TODO this only reads the first sector/cluster worth of entries:
+    pub fn read_entries(&self) -> impl TryStream<Ok = DirectoryEntry, Error = FatError> + '_ {
+        async fn read_raw_entries_from_sector(fs: &Filesystem, sector: usize)
+            -> Result<ArrayVec<[DirectoryEntry; 16]>, FatError>
+        {
+            let mut buff: Sector = [0u8; 512];
+            fs.part.read_sectors(sector, &mut [&mut buff]).await?;
+
+            let entries = unsafe { mem::transmute::<&Sector, &[DirectoryEntry; 16]>(&buff) };
+
+            Ok(entries.iter().cloned().collect())
+        }
+
+        let fs = &self.fs;
+
+        self.directory_sectors()
+            .map_err(FatError::Ata)
+            .and_then(move |sector| async move {
+                let raw_entries = read_raw_entries_from_sector(fs, sector).await?;
+                Ok(stream::iter(raw_entries.into_iter().map(Ok)))
+            })
+            .try_flatten()
+            .try_filter(|entry| future::ready(entry.basename[0] != 0xef)) // deleted file
+            .take_while(|entry| future::ready(entry.as_ref().map(|e| e.basename[0] != 0).unwrap_or(true))) // end
+    }
+}
+
+pub struct ClusterChain {
+    fs: Arc<Filesystem>,
+    cluster: usize,
+}
+
+pub struct EntriesPage<F> {
+    entries: [DirectoryEntry; 16],
+    next: F,
 }
 
 #[repr(packed)]
@@ -182,11 +284,11 @@ impl BiosParameterBlock {
         (self.root_directory_entry_count as usize * DIR_ENTRY_SIZE) / SECTOR_SIZE
     }
 
-    pub fn first_cluster_sector(&self, cluster_number: usize) -> usize {
+    pub fn first_cluster_sector(&self, cluster_number: ClusterNumber) -> usize {
         let clusters_base = self.first_root_dir_sector() + self.root_dir_sector_count();
 
         // cluster numbers are 2-indexed:
-        let cluster_number = cluster_number - 2;
+        let cluster_number = cluster_number.0 - 2;
 
         clusters_base + cluster_number * self.sectors_per_cluster()
     }
@@ -194,17 +296,26 @@ impl BiosParameterBlock {
     pub fn sectors_per_cluster(&self) -> usize {
         self.sectors_per_cluster as usize
     }
+
+    pub fn cluster_sectors(&self, cluster_number: ClusterNumber) -> impl Iterator<Item = usize> {
+        let first = self.first_cluster_sector(cluster_number);
+        let count = self.sectors_per_cluster();
+
+        (first..(first + count)).into_iter()
+    }
 }
 
-async fn read_bpb(part: &Partition) -> Result<BiosParameterBlock, AtaError> {
-    let mut buff: Sector = [0; 512];
-    part.read_sectors(0, &mut [&mut buff]).await?;
+impl BiosParameterBlock {
+    pub async fn read(part: &Partition) -> Result<BiosParameterBlock, AtaError> {
+        let mut buff: Sector = [0; 512];
+        part.read_sectors(0, &mut [&mut buff]).await?;
 
-    crate::println!("bpb sector: {:x?}", &buff[..]);
+        crate::println!("bpb sector: {:x?}", &buff[..]);
 
-    let bpb = unsafe {
-        mem::transmute::<&Sector, &BiosParameterBlock>(&buff).clone()
-    };
+        let bpb = unsafe {
+            mem::transmute::<&Sector, &BiosParameterBlock>(&buff).clone()
+        };
 
-    Ok(bpb)
+        Ok(bpb)
+    }
 }

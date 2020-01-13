@@ -259,6 +259,6 @@ section .stack
     align PAGE_SIZE
     stackguard times PAGE_SIZE db 0
     global stack
-    stack times 8 * PAGE_SIZE db 0
+    stack times 16 * PAGE_SIZE db 0
     global stackend
     stackend equ $

@@ -10,6 +10,7 @@ arraystring = { version = "0.3", default-features = false }
 arrayvec = { version = "0.5", default-features = false }
 bitflags = "1.0"
 core = { package = "core-futures-tls", version = "0.1" }
+futures = { version = "0.3", default-features = false }
 interface = { path = "../interface" }
 kernel_derive = { path = "../kernel_derive" }
 static_assertions = "0.3"

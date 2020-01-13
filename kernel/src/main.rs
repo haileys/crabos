@@ -33,6 +33,8 @@ mod util;
 use core::ptr;
 use core::str;
 
+use futures::stream::{self, Stream, StreamExt, TryStream, TryStreamExt};
+
 use interrupt::TrapFrame;
 use mem::page::{self, PageFlags};
 use mem::phys;
@@ -92,9 +94,14 @@ pub extern "C" fn main() -> ! {
                 let fat = Fat16::open(partitions.remove(0).expect("partitions[0]")).await
                     .expect("Fat16::open");
 
-                for entry in fat.root().read_entries().await.expect("read_entries") {
+                println!("printing root entries:");
+
+                fat.root().read_entries().try_for_each(|entry| async move {
                     println!("{:?}", str::from_utf8(entry.filename().as_slice()).expect("str::from_utf8"));
-                }
+                    Ok(())
+                }).await.expect("read_entries stream failed:");
+
+                println!("done.");
             }
 
             let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
@@ -110,20 +117,19 @@ pub extern "C" fn main() -> ! {
             task.run_loop().await;
         }).expect("task::spawn init");
 
-        task::spawn(|task| async move {
-            let mut task = task.setup(TrapFrame::new(b_addr as u64, 0x0));
+        // task::spawn(|task| async move {
+        //     let mut task = task.setup(TrapFrame::new(b_addr as u64, 0x0));
 
-            let phys = phys::alloc()
-                .expect("phys::alloc");
+        //     let phys = phys::alloc()
+        //         .expect("phys::alloc");
 
-            page::map(phys, b_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
-                .expect("page::map");
+        //     page::map(phys, b_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
+        //         .expect("page::map");
 
-            ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
+        //     ptr::copy(b_bin.as_ptr(), b_addr, b_bin.len());
 
-            task.run_loop().await;
-        }).expect("task::spawn second");
-
+        //     task.run_loop().await;
+        // }).expect("task::spawn second");
 
         task::start();
     }
