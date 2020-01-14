@@ -40,3 +40,7 @@ You need a few things to build this:
 ```
 make
 ```
+
+## Known Bugs
+
+* QEMU's TCG accelerator (the default) has a buggy implementation of the FS.base and GS.base MSRs. Use the KVM or HVF accelerators instead.
