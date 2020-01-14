@@ -59,5 +59,5 @@ pub unsafe extern "C" fn c_panic(msg: *const u8) -> ! {
 
     let loc = Location::internal_constructor("(none)", 0, 0);
 
-    panicking::panic(msg, &loc);
+    panicking::panic_fmt(format_args!("{}", msg), &loc);
 }
