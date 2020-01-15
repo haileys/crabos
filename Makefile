@@ -18,8 +18,7 @@ default: hdd.img
 .PHONY: clean
 clean:
 	rm -f hdd.img
-	rm -f target/loader/stage0.bin
-	rm -f target/loader/stage1.bin
+	rm -f target/loader/stage*.bin
 	rm -f target/x86_64-kernel/start.o
 	cargo clean
 
@@ -44,7 +43,11 @@ target/loader/stage1.bin: kernel/loader/stage1.asm kernel/src/consts.asm
 	mkdir -p target/loader
 	nasm -f bin -o $@ $<
 
-target/x86_64-kernel/%.o: kernel/src/%.asm kernel/src/consts.asm target/loader/stage1.bin
+target/loader/stage2.bin: kernel/loader/stage2.asm kernel/src/consts.asm
+	mkdir -p target/loader
+	nasm -f bin -o $@ $<
+
+target/x86_64-kernel/%.o: kernel/src/%.asm kernel/src/consts.asm target/loader/stage2.bin
 	mkdir -p target/x86_64-kernel
 	nasm -f elf64 -o $@ $<
 

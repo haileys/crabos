@@ -15,7 +15,7 @@ global start
 
 ; 16 bit start code:
 start:
-    incbin "target/loader/stage1.bin"
+    incbin "target/loader/stage2.bin"
 
 ; the kernel is linked with base = 0xffff800000000000, but the early bootloader
 ; places us at 0x8000 without paging enabled. we need to be careful in this
