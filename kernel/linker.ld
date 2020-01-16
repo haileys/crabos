@@ -61,6 +61,7 @@ SECTIONS {
         *(.stack.*)
     }
 
+    . = ALIGN(0x1000);
     _bss_end = .;
 
     _phys_rc = .;

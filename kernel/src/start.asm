@@ -146,8 +146,9 @@ higher_half:
     wrmsr
 
     ; init phys allocator
-    mov esi, [EARLY_MEMORY_MAP_LEN]
+    mov rsi, [EARLY_MEMORY_MAP_LEN]
     mov rdi, EARLY_MEMORY_MAP
+    mov rdx, EARLY_PHYS(_bss_end)
     call phys_init
 
     ; unmap low memory

@@ -22,10 +22,11 @@ clean:
 	rm -f target/x86_64-kernel/start.o
 	cargo clean
 
-hdd.img: hdd.base.img target/loader/stage0.bin $(KERNEL_BIN)
+hdd.img: hdd.base.img target/loader/stage0.bin target/loader/stage1.bin $(KERNEL_BIN)
 	cp hdd.base.img hdd.img
 	MTOOLSRC=mtoolsrc mformat C:
-	MTOOLSRC=mtoolsrc mcopy $(KERNEL_BIN) C:/KERNEL
+	MTOOLSRC=mtoolsrc mcopy target/loader/stage1.bin C:/KERNEL.1
+	MTOOLSRC=mtoolsrc mcopy $(KERNEL_BIN) C:/KERNEL.2
 	dd if=target/loader/stage0.bin of=$@ bs=446 count=1 conv=notrunc,sync
 
 $(KERNEL_BIN): $(KERNEL_ELF)
@@ -35,11 +36,11 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 $(KERNEL_ELF):  kernel/linker.ld $(KERNEL_OBJS)
 	cargo xbuild --target=kernel/x86_64-kernel.json $(CARGO_FLAGS)
 
-target/loader/stage0.bin: kernel/loader/stage0.asm kernel/src/consts.asm
+target/loader/stage0.bin: kernel/loader/stage0.asm kernel/loader/fat.asm kernel/src/consts.asm
 	mkdir -p target/loader
 	nasm -f bin -o $@ $<
 
-target/loader/stage1.bin: kernel/loader/stage1.asm kernel/src/consts.asm
+target/loader/stage1.bin: kernel/loader/stage1.asm kernel/loader/fat.asm kernel/src/consts.asm
 	mkdir -p target/loader
 	nasm -f bin -o $@ $<
 

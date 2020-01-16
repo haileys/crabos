@@ -18,7 +18,6 @@ static PHYS_REGIONS: Mutex<Option<[PhysRegion; 8]>> = Mutex::new(None);
 static NEXT_FREE_PHYS: Mutex<Option<RawPhys>> = Mutex::new(None);
 
 const REGION_KIND_USABLE: u32 = 1;
-const HIGH_MEMORY_BOUNDARY: RawPhys = RawPhys(0x100000);
 const MAX_PHYS_PAGE: u64 = 1 << 48;
 
 #[repr(transparent)]
@@ -242,8 +241,12 @@ unsafe fn ensure_rc_page(phys: RawPhys) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn phys_init(bios_memory_map: *const BiosMemoryRegion, region_count: u16) {
-    crate::println!("Initialising physical page allocator...");
+pub unsafe extern "C" fn phys_init(
+    bios_memory_map: *const BiosMemoryRegion,
+    region_count: u16,
+    high_memory_boundary: RawPhys,
+) {
+    crate::println!("Initialising physical page allocator... high_memory_boundary={:?}", high_memory_boundary);
 
     // init temp mapping
     page::temp_reset();
@@ -278,12 +281,12 @@ pub unsafe extern "C" fn phys_init(bios_memory_map: *const BiosMemoryRegion, reg
         let region_begin = region.begin;
         let region_end = RawPhys(region.begin.0 + region.size);
 
-        if region_end < HIGH_MEMORY_BOUNDARY {
+        if region_end < high_memory_boundary {
             continue;
         }
 
-        let region_begin = if region_begin < HIGH_MEMORY_BOUNDARY {
-            HIGH_MEMORY_BOUNDARY
+        let region_begin = if region_begin < high_memory_boundary {
+            high_memory_boundary
         } else {
             region_begin
         };
@@ -318,7 +321,7 @@ pub unsafe extern "C" fn phys_init(bios_memory_map: *const BiosMemoryRegion, reg
     }
 
     // map ref count pages for all low memory pages
-    for i in 0..(HIGH_MEMORY_BOUNDARY.0 / PAGE_SIZE as u64) {
+    for i in 0..(high_memory_boundary.0 / PAGE_SIZE as u64) {
         let raw_phys = RawPhys(i * PAGE_SIZE as u64);
 
         ensure_rc_page(raw_phys);
