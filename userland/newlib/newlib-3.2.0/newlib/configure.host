@@ -626,6 +626,9 @@ case "${host}" in
   z8k-*-coff)
 	sys_dir=z8ksim
 	;;
+  x86_64-elf-crabos*)
+    sys_dir=crabos
+    ;;
 esac
 
 # Host specific flag settings -- usually for features that are not
