@@ -1,8 +1,10 @@
-use arraystring::{ArrayString, typenum::U40};
 use core::sync::atomic::{AtomicBool, Ordering};
+
+use arrayvec::{ArrayString, ArrayVec};
 use x86_64::instructions::port::Port;
 
 use crate::sync::{Mutex, MutexGuard};
+use crate::util;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Drive {
@@ -193,7 +195,7 @@ impl IdeIo {
 
 #[derive(Debug)]
 pub struct Detect {
-    model: ArrayString<U40>,
+    model: ArrayString<[u8; 40]>,
 }
 
 #[derive(Debug)]
@@ -263,7 +265,7 @@ impl IdeDrive {
             }
 
             let model = {
-                let mut model = ArrayString::from_utf8(&identify_data[54..94])
+                let mut model = util::array_string(&identify_data[54..94])
                     .expect("IDE device model not UTF8");
 
                 model.trim();

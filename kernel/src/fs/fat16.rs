@@ -2,7 +2,6 @@ use core::future::Future;
 use core::iter;
 use core::mem;
 
-use arraystring::{ArrayString, typenum::U11};
 use arrayvec::ArrayVec;
 use futures::future;
 use futures::stream::{self, Stream, StreamExt, TryStream, TryStreamExt};
