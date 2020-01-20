@@ -41,6 +41,8 @@ dnl Make sure syscall names match those being used by newlib
 case "${target}" in
   *-*-cygwin*)
 	;;
+  *-*-crabos*)
+  ;;
   a29k-amd-udi)
 	;;
   aarch64*-*-*)
@@ -56,9 +58,9 @@ case "${target}" in
   d10v*)
 	;;
   h8300*-*-*)
-	;;	
+	;;
   h8500-*-*)
-	;;	
+	;;
   i[3456]86-*-sco*)
 	;;
   lm32-*-*)
@@ -80,7 +82,7 @@ case "${target}" in
   v850*-*-*)
 	;;
   w65-*-*)
-	;;	
+	;;
   xstormy16-*-*)
 	;;
   z8k-*-*)
