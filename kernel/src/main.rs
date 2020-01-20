@@ -24,7 +24,6 @@ mod fs;
 mod interrupt;
 mod mem;
 mod panic;
-mod sched;
 mod sync;
 mod syscall;
 mod task;
