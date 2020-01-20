@@ -626,8 +626,11 @@ case "${host}" in
   z8k-*-coff)
 	sys_dir=z8ksim
 	;;
-  x86_64-elf-crabos*)
+  x86_64-*-crabos*)
     sys_dir=crabos
+    newlib_io_c99_formats=yes
+    newlib_io_long_long=yes
+    newlib_io_long_double=yes
     ;;
 esac
 
