@@ -1,0 +1,102 @@
+diff --git bfd/config.bfd bfd/config.bfd
+index 13d678e1..c0361271 100644
+--- bfd/config.bfd
++++ bfd/config.bfd
+@@ -652,6 +652,11 @@ case "${targ}" in
+     targ_selvecs=
+     targ64_selvecs=x86_64_elf64_vec
+     ;;
++  i[3-7]86-*-crabos*)
++    targ_defvec=i386_elf32_vec
++    targ_selvecs=
++    targ64_selvecs=x86_64_elf64_vec
++    ;;
+ #ifdef BFD64
+   x86_64-*-cloudabi*)
+     targ_defvec=x86_64_elf64_cloudabi_vec
+@@ -718,6 +723,11 @@ case "${targ}" in
+     targ_selvecs=i386_elf32_vec
+     want64=true
+     ;;
++  x86_64-*-crabos*)
++    targ_defvec=x86_64_elf64_vec
++    targ_selvecs=i386_elf32_vec
++    want64=true
++    ;;
+ #endif
+   i[3-7]86-*-lynxos*)
+     targ_defvec=i386_elf32_vec
+diff --git config.sub config.sub
+index 5b158ac4..3fafffd5 100755
+--- config.sub
++++ config.sub
+@@ -1368,7 +1368,8 @@ case $os in
+ 	     | powermax* | dnix* | nx6 | nx7 | sei* | dragonfly* \
+ 	     | skyos* | haiku* | rdos* | toppers* | drops* | es* \
+ 	     | onefs* | tirtos* | phoenix* | fuchsia* | redox* | bme* \
+-	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi*)
++	     | midnightbsd* | amdhsa* | unleashed* | emscripten* | wasi* \
++	     | crabos* )
+ 	# Remember, each alternative MUST END IN *, to match a version number.
+ 		;;
+ 	qnx*)
+diff --git gas/configure.tgt gas/configure.tgt
+index a4828c4c..d6cd95d0 100644
+--- gas/configure.tgt
++++ gas/configure.tgt
+@@ -6,12 +6,12 @@
+ # it under the terms of the GNU General Public License as published by
+ # the Free Software Foundation; either version 3 of the License, or
+ # (at your option) any later version.
+-# 
++#
+ # This program is distributed in the hope that it will be useful,
+ # but WITHOUT ANY WARRANTY; without even the implied warranty of
+ # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ # GNU General Public License for more details.
+-# 
++#
+ # You should have received a copy of the GNU General Public License
+ # along with this program; see the file COPYING3.  If not see
+ # <http://www.gnu.org/licenses/>.
+@@ -235,6 +235,7 @@ case ${generic_target} in
+     esac ;;
+   i386-*-lynxos*)			fmt=elf em=lynx ;;
+   i386-*-redox*)			fmt=elf ;;
++  i386-*-crabos*)      fmt=elf ;;
+   i386-*-solaris*)			fmt=elf em=solaris ;;
+   i386-*-freebsd* \
+   | i386-*-kfreebsd*-gnu)		fmt=elf em=freebsd ;;
+@@ -326,7 +327,7 @@ case ${generic_target} in
+   moxie-*-uclinux)			fmt=elf em=linux ;;
+   moxie-*-moxiebox*)                    fmt=elf endian=little ;;
+   moxie-*-*)				fmt=elf ;;
+-    
++
+   mt-*-elf)				fmt=elf bfd_gas=yes ;;
+ 
+   msp430-*-*)				fmt=elf ;;
+@@ -414,7 +415,7 @@ case ${generic_target} in
+   wasm32-*-*)                           fmt=elf ;;
+ 
+   xstormy16-*-*)			fmt=elf ;;
+-  
++
+   xgate-*-*)    			fmt=elf ;;
+ 
+   xtensa*-*-*)				fmt=elf ;;
+diff --git ld/configure.tgt ld/configure.tgt
+index c81bc8a7..4c13a121 100644
+--- ld/configure.tgt
++++ ld/configure.tgt
+@@ -265,6 +265,10 @@ i[3-7]86-*-redox*)	targ_emul=elf_i386
+ 			targ_extra_emuls=elf_x86_64 ;;
+ x86_64-*-redox*)	targ_emul=elf_x86_64
+ 			targ_extra_emuls=elf_i386 ;;
++i[3-7]86-*-crabos*)	targ_emul=elf_i386
++			targ_extra_emuls=elf_x86_64 ;;
++x86_64-*-crabos*)	targ_emul=elf_x86_64
++			targ_extra_emuls=elf_i386 ;;
+ i[3-7]86-*-sysv[45]*)	targ_emul=elf_i386
+ 			targ_extra_emuls=elf_iamcu ;;
+ i[3-7]86-*-solaris2*)	targ_emul=elf_i386_sol2

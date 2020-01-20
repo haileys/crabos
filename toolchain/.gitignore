@@ -1,0 +1,5 @@
+autotools
+cross-elf
+cross-hosted
+sysroot
+tmp
