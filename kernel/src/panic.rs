@@ -35,12 +35,12 @@ static PANICKING: AtomicBool = AtomicBool::new(false);
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     let crit = critical::begin();
-    let mut con = console::get(&crit);
+    let mut con = console::failsafe(&crit);
 
     let recursive_panic = PANICKING.swap(true, Ordering::SeqCst);
 
     if recursive_panic {
-        let _ = write!(con, "\n\n*** PANIC while panicking, halt\n\n");
+        let _ = con.write_str("\n\n*** PANIC while panicking, halt\n\n");
     } else {
         panic_write(&mut con, info);
     }

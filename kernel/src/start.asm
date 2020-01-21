@@ -10,6 +10,7 @@ extern _tls_end
 extern main
 extern phys_init
 extern isrs_init
+extern console_init
 
 global start
 
@@ -146,10 +147,15 @@ higher_half:
     wrmsr
 
     ; init phys allocator
-    mov rsi, [EARLY_MEMORY_MAP_LEN]
     mov rdi, EARLY_MEMORY_MAP
+    mov rsi, [EARLY_MEMORY_MAP_LEN]
     mov rdx, EARLY_PHYS(_bss_end)
     call phys_init
+
+    ; init console
+    mov rdi, EARLY_VBE_MODE_INFO
+    mov rsi, EARLY_BIOS_FONT
+    call console_init
 
     ; unmap low memory
     xor rax, rax

@@ -13,6 +13,9 @@
 %define EARLY_MEMORY_MAP_END    0x00004ff0
 %define EARLY_MEMORY_MAP_LEN    0x00004ff0
 
+%define EARLY_BIOS_FONT         0x00005000
+%define EARLY_VBE_MODE_INFO     0x00006000
+
 %define SEG_KCODE               0x08
 %define SEG_KDATA               0x10
 %define SEG_UCODE               0x1b
@@ -28,3 +31,5 @@
 %define GDT64_EXECUTABLE        (1 << 43)
 %define GDT64_64BIT             (1 << 53)
 %define GDT64_USER              (3 << 45)
+
+%define VBE_MODE                0x0118 ; TODO don't hardcode this

@@ -64,6 +64,11 @@ SECTIONS {
     . = ALIGN(0x1000);
     _bss_end = .;
 
+    .unalloc : ALIGN(0x1000) {
+        *(.unalloc)
+        *(.unalloc.*)
+    }
+
     _phys_rc = .;
 
     /* 48 physical address lines,

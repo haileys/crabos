@@ -29,6 +29,37 @@ use16
     jb .memory_map_loop
 .memory_map_done:
 
+    ; fetch text mode font from BIOS
+    mov ax, 0x1130
+    mov bh, 6
+    int 0x10
+    ; call sets ES:BP to base of font
+
+    ; swap ES and DS for MOVS
+    push es
+    push ds
+    pop es
+    pop ds
+    mov si, bp
+    mov di, EARLY_BIOS_FONT
+    mov cx, 1024
+    rep movsd
+
+    ; restore DS = ES
+    push es
+    pop ds
+
+    ; query vbe info for the mode we want
+    mov ax, 0x4f01
+    mov cx, VBE_MODE
+    mov di, EARLY_VBE_MODE_INFO
+    int 0x10
+
+    ; switch to the right mode
+    mov ax, 0x4f02
+    mov bx, VBE_MODE | (1 << 14) ; linear frame buffer
+    int 0x10
+
     ; search for KERNEL.2 in root dir on disk
     mov ax, kernel2_filename
     call fat_find_file
@@ -169,6 +200,16 @@ gdt32:
     .data_base_24_b:
     db 0x00         ; base 24:31
 .end:
+
+vbe_info_block:
+    .signature      dd 0
+    .version        dw 0
+    .oem_str_off    dw 0
+    .oem_str_seg    dw 0
+    .capabilities   dd 0
+    .mode_list_off  dw 0
+    .mode_list_seg  dw 0
+    .total_memory   dw 0
 
 idtr32:
     dw 0

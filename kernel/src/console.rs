@@ -1,10 +1,41 @@
 use core::fmt::{self, Write};
 use core::marker::PhantomData;
 
-use crate::critical::Critical;
+use crate::critical::{self, Critical};
+use crate::sync::{Mutex, MutexGuard};
 
-pub fn get<'a>(_crit: &'a Critical) -> impl Write + 'a {
-    PortE9 { crit: PhantomData }
+mod vga;
+
+static CONSOLE: Mutex<Console> = Mutex::new(Console::PortE9(PortE9));
+
+pub(self) enum Console {
+    PortE9(PortE9),
+    VgaText(vga::VgaText),
+}
+
+impl Write for Console {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        match self {
+            Console::PortE9(con) => con.write_str(s),
+            Console::VgaText(con) => con.write_str(s),
+        }
+    }
+}
+
+pub fn write_failsafe(_crit: &Critical, s: &str) {
+    PortE9.write_str(s);
+}
+
+pub fn get() -> MutexGuard<'static, impl Write> {
+    CONSOLE.lock()
+}
+
+pub(self) fn set(console: Console) {
+    *CONSOLE.lock() = console;
+}
+
+pub fn failsafe<'a>(_crit: &'a Critical) -> impl Write + 'a {
+    PortE9
 }
 
 #[macro_export]
@@ -16,26 +47,27 @@ macro_rules! println {
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {{
-        let crit = $crate::critical::begin();
-        let _ = $crate::console::write_fmt(format_args!($($arg)*), &crit);
+        let _ = $crate::console::write_fmt(format_args!($($arg)*));
     }};
 }
 
-pub fn write_fmt(args: fmt::Arguments, crit: &Critical) {
-    let mut con = get(&crit);
-    let _ = fmt::write(&mut con, args);
+pub fn write_fmt(args: fmt::Arguments) {
+    let mut con = get();
+    let _ = fmt::write(&mut *con, args);
 }
 
-struct PortE9<'a> {
-    crit: PhantomData<&'a Critical>,
-}
+struct PortE9;
 
-impl<'a> Write for PortE9<'a> {
+impl Write for PortE9 {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        for b in s.as_bytes() {
-            unsafe { asm!("outb %al, %dx" :: "{dx}"(0xe9), "{al}"(*b) :: "volatile"); }
+        for b in s.bytes() {
+            unsafe { asm!("outb %al, %dx" :: "{dx}"(0xe9), "{al}"(b) :: "volatile"); }
         }
 
         Ok(())
     }
+}
+
+struct VgaText<'a> {
+    crit: PhantomData<&'a Critical>,
 }
