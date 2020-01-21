@@ -92,8 +92,6 @@ pub unsafe fn set_ctx(ctx: PageCtx) {
     let old_cr3;
     asm!("movq %cr3, $0" : "=r"(old_cr3));
 
-    crate::println!("page::set_ctx: {:x?}, old_cr3 = {:x?}", ctx, old_cr3);
-
     let new_cr3 = ctx.pml4.into_raw();
     asm!("movq $0, %cr3" :: "r"(new_cr3));
 
@@ -251,8 +249,6 @@ pub fn is_mapped(virt: *const u8) -> bool {
 }
 
 pub unsafe fn map(phys: Phys, virt: *mut u8, flags: PageFlags) -> Result<(), MapError> {
-    crate::println!("page::map");
-
     critical::section(|| {
         let virt = virt as u64;
 

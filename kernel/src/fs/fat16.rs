@@ -48,8 +48,6 @@ impl Fat16 {
         let bpb = BiosParameterBlock::read(&part).await
             .map_err(OpenError::Ata)?;
 
-        crate::println!("bpb: {:#x?}", bpb);
-
         let fs = Arc::new(Filesystem { part, bpb })
             .map_err(|_| OpenError::MemoryExhausted)?;
 
@@ -308,8 +306,6 @@ impl BiosParameterBlock {
     pub async fn read(part: &Partition) -> Result<BiosParameterBlock, AtaError> {
         let mut buff: Sector = [0; 512];
         part.read_sectors(0, &mut [&mut buff]).await?;
-
-        crate::println!("bpb sector: {:x?}", &buff[..]);
 
         let bpb = unsafe {
             mem::transmute::<&Sector, &BiosParameterBlock>(&buff).clone()
