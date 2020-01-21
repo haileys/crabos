@@ -3,18 +3,23 @@ use core::mem;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+use arrayvec::ArrayVec;
+
 use crate::critical::{self, Critical};
-use crate::mem::{zero, MemoryExhausted};
 use crate::mem::page::{self, PAGE_SIZE, PageFlags};
+use crate::mem::{zero, MemoryExhausted};
 use crate::sync::Mutex;
+use crate::util::EarlyInit;
 
 extern "C" {
     static _phys_rc: AtomicUsize;
     static _phys_rc_end: AtomicUsize;
 }
 
+static PHYS_REGIONS: EarlyInit<ArrayVec<[PhysRegion; 8]>> = EarlyInit::new();
+static PHYS_BUMP_ALLOC: EarlyInit<Mutex<ArrayVec<[RawPhys; 8]>>> = EarlyInit::new();
+
 static REF_COUNT_ENABLED: AtomicBool = AtomicBool::new(false);
-static PHYS_REGIONS: Mutex<Option<[PhysRegion; 8]>> = Mutex::new(None);
 static NEXT_FREE_PHYS: Mutex<Option<RawPhys>> = Mutex::new(None);
 
 const REGION_KIND_USABLE: u32 = 1;
@@ -64,10 +69,10 @@ impl Debug for Phys {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
 struct PhysRegion {
     begin: RawPhys,
-    size: u64,
+    end: RawPhys,
 }
 
 #[repr(C)]
@@ -99,15 +104,14 @@ fn alloc_freelist() -> Option<Phys> {
     })
 }
 
-fn alloc_new(regions: &mut [PhysRegion]) -> Result<Phys, MemoryExhausted> {
-    for region in regions {
-        if region.size == 0 {
+fn alloc_new(regions: &[PhysRegion], bump_alloc: &mut [RawPhys]) -> Result<Phys, MemoryExhausted> {
+    for (region, alloc) in regions.iter().zip(bump_alloc.iter_mut()) {
+        if *alloc >= region.end {
             continue;
         }
 
-        let raw_phys = region.begin;
-        region.begin.0 += PAGE_SIZE as u64;
-        region.size -= PAGE_SIZE as u64;
+        let raw_phys = *alloc;
+        alloc.0 += PAGE_SIZE as u64;
 
         let phys = unsafe { Phys::new(raw_phys) };
 
@@ -129,9 +133,12 @@ pub fn alloc() -> Result<Phys, MemoryExhausted> {
         return Ok(page);
     }
 
-    alloc_new(PHYS_REGIONS.lock()
-        .as_mut()
-        .expect("PHYS_REGIONS is None in phys::alloc"))
+    // Safety: need unsafe to access static mut. We only ever take a mut ref to
+    // PHYS_REGIONS during phys_regions_init
+    let regions = unsafe { &PHYS_REGIONS };
+    let mut bump_alloc = PHYS_BUMP_ALLOC.lock();
+
+    alloc_new(regions, &mut *bump_alloc)
 }
 
 impl Drop for Phys {
@@ -169,7 +176,12 @@ pub unsafe fn init_ref_counts(_critical: &Critical) {
     REF_COUNT_ENABLED.store(true, Ordering::SeqCst);
 }
 
-fn ref_count(raw: RawPhys) -> &'static AtomicUsize {
+fn ref_count(raw: RawPhys) -> Option<&'static AtomicUsize> {
+    if !PHYS_REGIONS.iter().any(|reg| reg.begin <= raw && raw < reg.end) {
+        // this region is unknown to us. it could be memory mapped hardware
+        return None;
+    }
+
     if raw.0 > MAX_PHYS_PAGE {
         panic!("addr > MAX_PHYS_PAGE (addr = {:x?})", raw);
     }
@@ -184,20 +196,22 @@ fn ref_count(raw: RawPhys) -> &'static AtomicUsize {
         panic!("rc > end");
     }
 
-    unsafe { &*rc }
+    Some(unsafe { &*rc })
 }
 
 fn inc_ref(raw: RawPhys) {
     if REF_COUNT_ENABLED.load(Ordering::SeqCst) {
-        ref_count(raw)
-            .fetch_add(1, Ordering::SeqCst);
+        if let Some(rc) = ref_count(raw) {
+            rc.fetch_add(1, Ordering::SeqCst);
+        }
     }
 }
 
 fn inc_ref_for_init(raw: RawPhys) {
     // always inc ref count, this function is used from init_ref_counts
-    ref_count(raw)
-        .fetch_add(1, Ordering::SeqCst);
+    if let Some(rc) = ref_count(raw) {
+        rc.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 enum PhysStatus {
@@ -207,36 +221,36 @@ enum PhysStatus {
 
 fn dec_ref(raw: RawPhys) -> PhysStatus {
     if REF_COUNT_ENABLED.load(Ordering::SeqCst) {
-        let previous_ref_count = ref_count(raw)
-            // TODO - we can probably do better than SeqCst here:
-            .fetch_sub(1, Ordering::SeqCst);
+        if let Some(rc) = ref_count(raw) {
+            let previous_ref_count = rc.fetch_sub(1, Ordering::SeqCst);
 
-        if previous_ref_count == 0 {
-            panic!("phys::dec_ref underflowed!");
-        }
+            if previous_ref_count == 0 {
+                panic!("phys::dec_ref underflowed!");
+            }
 
-        // return the current ref count as of immediately after this operation:
-        if previous_ref_count == 1 {
-            PhysStatus::ShouldFree
-        } else {
-            PhysStatus::InUse
+            // return the current ref count as of immediately after this operation:
+            if previous_ref_count == 1 {
+                return PhysStatus::ShouldFree;
+            } else {
+                return PhysStatus::InUse;
+            }
         }
-    } else {
-        PhysStatus::InUse
     }
+
+    PhysStatus::InUse
 }
 
 unsafe fn ensure_rc_page(phys: RawPhys) {
-    let page = ref_count(phys);
+    if let Some(rc) = ref_count(phys) {
+        let ref_count_page = ((rc as *const AtomicUsize) as usize & !(PAGE_SIZE - 1)) as *mut u8;
 
-    let ref_count_page = ((page as *const AtomicUsize) as usize & !(PAGE_SIZE - 1)) as *mut u8;
+        if !page::is_mapped(ref_count_page) {
+            let phys = alloc()
+                .expect("phys::alloc in phys_init");
 
-    if !page::is_mapped(ref_count_page) {
-        let phys = alloc()
-            .expect("phys::alloc in phys_init");
-
-        page::map(phys, ref_count_page, PageFlags::PRESENT | PageFlags::WRITE)
-            .expect("page::map in phys_init");
+            page::map(phys, ref_count_page, PageFlags::PRESENT | PageFlags::WRITE)
+                .expect("page::map in phys_init");
+        }
     }
 }
 
@@ -251,22 +265,8 @@ pub unsafe extern "C" fn phys_init(
     // init temp mapping
     page::temp_reset();
 
-    let mut phys_i = 0;
-
-    // XXX - it's important PhysRegion is not Copy to prevent bugs from
-    // unintentional copies out of the mutex-guarded static. This means we're
-    // unable to use the repeat array initializer syntax here:
-    const NULL_PHYS_REGION: PhysRegion = PhysRegion { begin: RawPhys(0), size: 0 };
-    let mut phys_regions = [
-        NULL_PHYS_REGION,
-        NULL_PHYS_REGION,
-        NULL_PHYS_REGION,
-        NULL_PHYS_REGION,
-        NULL_PHYS_REGION,
-        NULL_PHYS_REGION,
-        NULL_PHYS_REGION,
-        NULL_PHYS_REGION,
-    ];
+    let mut phys_regions = ArrayVec::new();
+    let mut phys_bump_alloc = ArrayVec::new();
 
     for i in 0..region_count {
         let region = &*bios_memory_map.add(i as usize);
@@ -291,30 +291,34 @@ pub unsafe extern "C" fn phys_init(
             region_begin
         };
 
-        let region_size = region_end.0 - region_begin.0;
+        // Safety: this is the only time we ever mutate PHYS_REGIONS
+        phys_regions.push(PhysRegion {
+            begin: region_begin,
+            end: region_end,
+        });
 
-        crate::println!("    - registering as region #{}", phys_i);
-        phys_regions[phys_i].begin = region_begin;
-        phys_regions[phys_i].size = region_size;
-        phys_i += 1;
-
-        if phys_i == phys_regions.len() {
-            break;
+        match phys_bump_alloc.try_push(region_begin) {
+            Ok(()) => {}
+            Err(_) => {
+                // capacity exceeded
+                break;
+            }
         }
     }
 
-    let mibibytes = phys_regions.iter().map(|reg| reg.size).sum::<u64>() / 1024 / 1024;
+    EarlyInit::set(&PHYS_REGIONS, phys_regions);
+    EarlyInit::set(&PHYS_BUMP_ALLOC, Mutex::new(phys_bump_alloc));
+
+    // --- we don't mutate PHYS_REGIONS at all beyond this point
+
+    let mibibytes = PHYS_REGIONS.iter().map(|reg| reg.end.0 - reg.begin.0).sum::<u64>() / 1024 / 1024;
     crate::println!("  {} MiB free", mibibytes);
 
-    *PHYS_REGIONS.lock() = Some(phys_regions.clone());
-
-    // map ref count pages for all allocatable phys regions
-    for region in &phys_regions {
-        let end = RawPhys(region.begin.0 + region.size);
-
+    // map ref count pages for all phys regions reported by BIOS
+    for region in PHYS_REGIONS.iter() {
         let mut phys = region.begin;
 
-        while phys < end {
+        while phys < region.end {
             ensure_rc_page(phys);
             phys.0 += PAGE_SIZE as u64;
         }
