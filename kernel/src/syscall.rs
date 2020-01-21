@@ -38,8 +38,8 @@ bitflags! {
 
 impl From<UserPageFlags> for PageFlags {
     fn from(user_flags: UserPageFlags) -> PageFlags {
-        // UserPageFlags implies PRESENT:
-        let mut flags = PageFlags::PRESENT;
+        // UserPageFlags implies PRESENT and USER:
+        let mut flags = PageFlags::PRESENT | PageFlags::USER;
 
         if user_flags.contains(UserPageFlags::WRITE) {
             flags.insert(PageFlags::WRITE);
