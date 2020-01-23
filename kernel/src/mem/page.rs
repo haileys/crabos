@@ -35,9 +35,14 @@ impl PmlEntry {
 
 bitflags! {
     pub struct PageFlags: u64 {
-        const PRESENT   = 0x001;
-        const WRITE     = 0x002;
-        const USER      = 0x004;
+        const PRESENT           = 0x001;
+        const WRITE             = 0x002;
+        const USER              = 0x004;
+        const WRITE_THROUGH     = 0x008;
+        const CACHE_DISABLED    = 0x010;
+        const ACCESSED          = 0x020;
+        const DIRTY             = 0x040;
+        const GLOBAL            = 0x080;
     }
 }
 
