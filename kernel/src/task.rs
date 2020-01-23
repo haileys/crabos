@@ -10,6 +10,7 @@ use alloc_collections::btree_map::BTreeMap;
 use crate::interrupt::TrapFrame;
 use crate::mem::kalloc::GlobalAlloc;
 use crate::mem::MemoryExhausted;
+use crate::object::{Handle, Object, ObjectRef};
 use crate::page::{self, PageCtx};
 use crate::sync::{Arc, Mutex};
 use crate::syscall;
@@ -18,7 +19,7 @@ use crate::util::EarlyInit;
 pub const SEG_UCODE: u16 = 0x1b;
 pub const SEG_UDATA: u16 = 0x23;
 
-type TaskMap<V> = EarlyInit<Mutex<BTreeMap<TaskId, V, GlobalAlloc>>>;
+pub type TaskMap<V> = EarlyInit<Mutex<BTreeMap<TaskId, V, GlobalAlloc>>>;
 
 static TASKS: TaskMap<Task> = TaskMap::new();
 static TASK_STATES: TaskMap<TaskState> = TaskMap::new();
@@ -48,7 +49,7 @@ type TaskFuture = Arc<Mutex<Pin<Box<dyn Future<Output = ()>, GlobalAlloc>>>>;
 #[derive(Debug)]
 pub struct Task {
     id: TaskId,
-    page_ctx: PageCtx,
+    page_ctx: ObjectRef<PageCtx>,
 }
 
 fn alloc_task_id() -> TaskId {
@@ -56,7 +57,7 @@ fn alloc_task_id() -> TaskId {
     TaskId(NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst))
 }
 
-pub fn spawn<F, Fut>(f: F) -> Result<TaskId, MemoryExhausted>
+pub fn spawn<F, Fut>(page_ctx: ObjectRef<PageCtx>, f: F) -> Result<TaskId, MemoryExhausted>
     where F: FnOnce(TaskEmbryo) -> Fut, Fut: Future<Output = ()> + 'static
 {
     let id = alloc_task_id();
@@ -73,10 +74,7 @@ pub fn spawn<F, Fut>(f: F) -> Result<TaskId, MemoryExhausted>
         unsafe { Pin::new_unchecked(future_obj) }
     };
 
-    let task = Task {
-        id: id,
-        page_ctx: PageCtx::new()?,
-    };
+    let task = Task { id, page_ctx };
 
     // try inserting all task related data:
     let result: Result<_, MemoryExhausted> = (|| {
@@ -102,6 +100,19 @@ pub fn spawn<F, Fut>(f: F) -> Result<TaskId, MemoryExhausted>
             Err(MemoryExhausted)
         }
     }
+}
+
+pub fn current() -> TaskId {
+    CURRENT_TASK.lock()
+        .expect("task::current called with no current task")
+}
+
+pub fn get_page_ctx() -> ObjectRef<PageCtx> {
+    TASKS.lock()
+        .get(&current())
+        .expect("task::get_page_ctx called with no current task")
+        .page_ctx
+        .clone()
 }
 
 pub unsafe fn start() -> ! {
@@ -191,7 +202,7 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
             .page_ctx
             .clone();
 
-        page::set_ctx(page_ctx);
+        page::set_ctx(page_ctx.object().clone());
 
         match work_item {
             WorkItem::Kernel(future) => {

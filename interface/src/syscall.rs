@@ -3,6 +3,15 @@ enum64! {
         1   => AllocPage,
         2   => ReleasePage,
         3   => ModifyPage,
+        4   => ReleaseHandle,
+        5   => CloneHandle,
+        6   => CreatePageContext,
+        7   => Debug,
+        8   => SetPageContext,
+        9   => GetPageContext,
+        10  => CreateTask,
+        11  => Exit,
+        12  => MapPhysicalMemory,
     }
 }
 
@@ -13,6 +22,8 @@ enum64! {
         0xffff_ffff_0000_0003 => AlreadyMapped,
         0xffff_ffff_0000_0004 => MemoryExhausted,
         0xffff_ffff_0000_0005 => IllegalValue,
+        0xffff_ffff_0000_0006 => WrongObjectKind,
+        0xffff_ffff_0000_0007 => BadHandle,
     }
 }
 

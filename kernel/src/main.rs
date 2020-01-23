@@ -23,6 +23,7 @@ mod device;
 mod fs;
 mod interrupt;
 mod mem;
+mod object;
 mod panic;
 mod sync;
 mod syscall;
@@ -52,6 +53,9 @@ pub extern "C" fn main() -> ! {
 
         // init kernel PML4 entries
         mem::page::init_kernel_pml4_entries(&crit);
+
+        // init object space
+        object::init();
 
         // init pit
         device::pit::init();

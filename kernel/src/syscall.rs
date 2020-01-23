@@ -1,24 +1,29 @@
 use core::convert::TryInto;
 
 use bitflags::bitflags;
-
-use crate::{critical, println};
-use crate::interrupt::{TrapFrame, Registers};
-use crate::mem::user::{self, PageRange};
-use crate::mem::page::{self, PageFlags, MapError};
-use crate::mem::phys::{self};
 use interface::{OK, Syscall, SysError, SysResult};
+
+use crate::interrupt::{TrapFrame, Registers};
+use crate::mem::page::{self, PageFlags, MapError, PageCtx, PAGE_SIZE};
+use crate::mem::phys::{self, Phys, RawPhys};
+use crate::mem::user::{self, PageRange};
+use crate::object::{self, Handle, Object, ObjectKind};
+use crate::task;
+use crate::{critical, println};
+
+mod args;
+use args::UserArg;
 
 pub async fn dispatch(frame: &mut TrapFrame) {
     let result = dispatch0(&mut frame.regs).await;
 
     frame.regs.rax = match result {
-        Ok(()) => OK,
+        Ok(u) => u,
         Err(e) => e.into(),
     };
 }
 
-async fn dispatch0(regs: &mut Registers) -> SysResult<()> {
+async fn dispatch0(regs: &mut Registers) -> SyscallReturn {
     let syscall = regs.rax
         .try_into()
         .map_err(|()| SysError::BadSyscall)?;
@@ -26,7 +31,16 @@ async fn dispatch0(regs: &mut Registers) -> SysResult<()> {
     match syscall {
         Syscall::AllocPage => alloc_page(regs.rdi, regs.rsi, regs.rdx),
         Syscall::ReleasePage => release_page(regs.rdi, regs.rsi),
-        Syscall::ModifyPage => modify_page(regs.rdi, regs.rsi, regs.rdx)
+        Syscall::ModifyPage => modify_page(regs.rdi, regs.rsi, regs.rdx),
+        Syscall::CloneHandle => clone_handle(UserArg::from_reg(regs.rdi)?),
+        Syscall::ReleaseHandle => release_handle(UserArg::from_reg(regs.rdi)?),
+        Syscall::CreatePageContext => create_page_context(),
+        Syscall::Debug => debug(regs),
+        Syscall::SetPageContext => set_page_context(UserArg::from_reg(regs.rdi)?),
+        Syscall::GetPageContext => get_page_context(),
+        Syscall::CreateTask => create_task(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
+        Syscall::Exit => exit(UserArg::from_reg(regs.rdi)?),
+        Syscall::MapPhysicalMemory => map_physical_memory(regs.rdi, regs.rsi, regs.rdx, regs.rcx),
     }
 }
 
@@ -49,8 +63,11 @@ impl From<UserPageFlags> for PageFlags {
     }
 }
 
-fn alloc_page(virtual_addr: u64, page_count: u64, flags: u64) -> SysResult<()> {
-    println!("SYSCALL alloc_page");
+type SyscallReturn = SysResult<u64>;
+
+fn alloc_page(virtual_addr: u64, page_count: u64, flags: u64) -> SyscallReturn {
+    println!("SYSCALL alloc_page(virt = {:x?}, count = {:x?}, flags = {:x?})",
+        virtual_addr,  page_count, flags);
 
     let crit = critical::begin();
 
@@ -88,10 +105,10 @@ fn alloc_page(virtual_addr: u64, page_count: u64, flags: u64) -> SysResult<()> {
         }
     }
 
-    Ok(())
+    Ok(OK)
 }
 
-fn release_page(virtual_addr: u64, page_count: u64) -> SysResult<()> {
+fn release_page(virtual_addr: u64, page_count: u64) -> SyscallReturn {
     println!("SYSCALL release_page");
 
     let crit = critical::begin();
@@ -112,10 +129,10 @@ fn release_page(virtual_addr: u64, page_count: u64) -> SysResult<()> {
         }
     }
 
-    Ok(())
+    Ok(OK)
 }
 
-fn modify_page(virtual_addr: u64, page_count: u64, flags: u64) -> SysResult<()> {
+fn modify_page(virtual_addr: u64, page_count: u64, flags: u64) -> SyscallReturn {
     println!("SYSCALL release_page");
 
     let crit = critical::begin();
@@ -141,5 +158,108 @@ fn modify_page(virtual_addr: u64, page_count: u64, flags: u64) -> SysResult<()> 
         }
     }
 
-    Ok(())
+    Ok(OK)
+}
+
+fn map_physical_memory(virtual_addr: u64, physical_addr: u64, page_count: u64, flags: u64)
+    -> SyscallReturn
+{
+    println!("SYSCALL map_physical_memory(virt = {:x?}, phys = {:x?}, count = {:x?}, flags = {:x?})",
+        virtual_addr, physical_addr, page_count, flags);
+
+    // TODO - insert capabilities check here. calling process must have DRIVER caps
+
+    let crit = critical::begin();
+
+    let page_range = PageRange::new(virtual_addr, page_count)?;
+    user::validate_available(&page_range, &crit)?;
+
+    let flags = UserPageFlags::from_bits(flags)
+        .ok_or(SysError::IllegalValue)?;
+
+    let flags = PageFlags::from(flags);
+
+    for (addr, phys) in page_range.pages().zip((physical_addr..).step_by(PAGE_SIZE)) {
+        let addr = addr as *mut u8;
+
+        // Safety: This may violate kernel memory safety, but given that the
+        // calling process has driver privileges, all bets are off anyway. We
+        // trust it to do the right thing.
+        unsafe {
+            let phys = Phys::new(RawPhys(phys));
+
+            page::map(phys, addr, flags)
+                // we've already validated mapping above, so this should never fail:
+                .expect("page::map in map_physical_memory");
+        }
+    }
+
+    Ok(OK)
+}
+
+fn clone_handle(handle: Handle) -> SyscallReturn  {
+    let object_ref = object::get(task::current(), handle)
+        .ok_or(SysError::BadHandle)?;
+
+    Ok(object::put(task::current(), object_ref)?.into_u64())
+}
+
+
+fn release_handle(handle: Handle) -> SyscallReturn  {
+    object::release(task::current(), handle)
+        .map_err(|_| SysError::BadHandle)?;
+
+    Ok(OK)
+}
+
+fn create_page_context() -> SyscallReturn {
+    let page_ctx = PageCtx::new()
+        .map_err(|_| SysError::MemoryExhausted)?;
+
+    let obj = Object::new(ObjectKind::PageCtx(page_ctx))
+        .map_err(|_| SysError::MemoryExhausted)?;
+
+    Ok(object::put(task::current(), obj)?.into_u64())
+}
+
+fn debug(regs: &mut Registers) -> SyscallReturn {
+    println!("{:#x?}", regs);
+    Ok(OK)
+}
+
+fn set_page_context(page_ctx: Handle) -> SyscallReturn {
+    let page_ctx = object::get(task::current(), page_ctx)
+        .ok_or(SysError::BadHandle)?
+        .downcast::<PageCtx>()?
+        .object()
+        .clone();
+
+    // TODO we need to set task's page ctx too?
+    unsafe { page::set_ctx(page_ctx); }
+
+    Ok(OK)
+}
+
+fn get_page_context() -> SyscallReturn {
+    let page_ctx = task::get_page_ctx();
+
+    Ok(object::put(task::current(), page_ctx.as_dyn())?.into_u64())
+}
+
+fn create_task(page_ctx: Handle, rip: u64, rsp: u64) -> SyscallReturn {
+    let page_ctx = object::get(task::current(), page_ctx)
+        .ok_or(SysError::BadHandle)?
+        .downcast::<PageCtx>()?
+        .clone();
+
+    task::spawn(page_ctx, |task| async move {
+        task.setup(TrapFrame::new(rip, rsp)).run_loop().await
+    });
+
+    Ok(OK)
+}
+
+fn exit(status: u64) -> SyscallReturn {
+    // TODO implement
+    panic!("process exited!")
 }

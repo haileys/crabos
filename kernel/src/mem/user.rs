@@ -88,7 +88,7 @@ impl PageRange {
         let base_page = self.base_page;
 
         (0..self.page_count)
-            .step_by(PAGE_SIZE)
+            .map(|index| index * PAGE_SIZE)
             .map(move |offset| base_page + offset as u64)
     }
 }
@@ -111,10 +111,7 @@ pub fn validate_map(page_range: &PageRange, flags: PageFlags, crit: &Critical)
 }
 
 pub fn validate_available(page_range: &PageRange, crit: &Critical) -> SysResult<()> {
-    crate::println!("validate_available: {:?}", page_range);
-
     for addr in page_range.pages() {
-        crate::println!("validate_available checking address {:x?}", addr);
         let exists = page::entry(addr as *mut u8, crit).is_ok();
 
         if exists {
