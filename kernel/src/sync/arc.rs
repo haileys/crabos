@@ -7,11 +7,13 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use crate::mem::kalloc;
 use crate::mem::MemoryExhausted;
 
+#[derive(Debug)]
 struct ArcObject<T: ?Sized> {
     ref_count: AtomicU64,
     object: T,
 }
 
+#[derive(Debug)]
 pub struct Arc<T: ?Sized> {
     ptr: NonNull<ArcObject<T>>,
 }
