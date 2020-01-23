@@ -1,9 +1,12 @@
+use core::cmp;
 use core::future::Future;
 use core::iter;
 use core::mem;
+use core::str;
 
 use arrayvec::ArrayVec;
 use futures::future;
+use futures::pin_mut;
 use futures::stream::{self, Stream, StreamExt, TryStream, TryStreamExt};
 
 use crate::device::ide::{AtaError, Sector};
@@ -120,7 +123,7 @@ impl Filesystem {
 
 enum DirectoryKind {
     Root,
-    Cluster(ClusterNumber),
+    Sub(RawDirEntry),
 }
 
 pub struct Directory {
@@ -139,22 +142,22 @@ impl Directory {
                 stream::iter(sectors.into_iter().map(Ok))
                     .left_stream()
             }
-            DirectoryKind::Cluster(start) => {
-                self.fs.sector_chain(start)
+            DirectoryKind::Sub(dirent) => {
+                self.fs.sector_chain(dirent.first_cluster())
                     .right_stream()
             }
         }
     }
 
     /// TODO this only reads the first sector/cluster worth of entries:
-    pub fn read_entries(&self) -> impl TryStream<Ok = DirectoryEntry, Error = FatError> + '_ {
+    fn read_entries(&self) -> impl TryStream<Ok = RawDirEntry, Error = FatError> + '_ {
         async fn read_raw_entries_from_sector(fs: &Filesystem, sector: usize)
-            -> Result<ArrayVec<[DirectoryEntry; 16]>, FatError>
+            -> Result<ArrayVec<[RawDirEntry; 16]>, FatError>
         {
             let mut buff: Sector = [0u8; 512];
             fs.part.read_sectors(sector, &mut [&mut buff]).await?;
 
-            let entries = unsafe { mem::transmute::<&Sector, &[DirectoryEntry; 16]>(&buff) };
+            let entries = unsafe { mem::transmute::<&Sector, &[RawDirEntry; 16]>(&buff) };
 
             Ok(entries.iter().cloned().collect())
         }
@@ -171,21 +174,146 @@ impl Directory {
             .try_filter(|entry| future::ready(entry.basename[0] != 0xef)) // deleted file
             .take_while(|entry| future::ready(entry.as_ref().map(|e| e.basename[0] != 0).unwrap_or(true))) // end
     }
+
+    pub fn entries(&self) -> impl TryStream<Ok = DirectoryEntry, Error = FatError> + '_ {
+        self.read_entries()
+            .map_ok(move |dirent| {
+                if dirent.attributes().contains(Attributes::DIRECTORY) {
+                    DirectoryEntry::Dir(Directory {
+                        fs: self.fs.clone(),
+                        kind: DirectoryKind::Sub(dirent),
+                    })
+                } else {
+                    DirectoryEntry::File(File {
+                        fs: self.fs.clone(),
+                        dirent: dirent,
+                    })
+                }
+            })
+    }
+
+    pub async fn entry(&self, name: &[u8]) -> Result<Option<DirectoryEntry>, FatError> {
+        let mut entries = self
+            .entries()
+            .try_filter(|entry| {
+                let entry_name = entry.name();
+                crate::println!("--- {:?}", core::str::from_utf8(&entry_name).expect("utf8"));
+                crate::println!("    {:?}", core::str::from_utf8(&name).expect("utf8"));
+                crate::println!();
+                future::ready(&entry_name == name)
+            });
+        pin_mut!(entries);
+
+        entries.try_next().await
+    }
 }
 
-pub struct ClusterChain {
+pub enum DirectoryEntry {
+    Dir(Directory),
+    File(File),
+}
+
+impl DirectoryEntry {
+    fn dirent(&self) -> &RawDirEntry {
+        match self {
+            DirectoryEntry::Dir(dir) => match dir.kind {
+                DirectoryKind::Root => panic!("impossible"),
+                DirectoryKind::Sub(ref dirent) => dirent,
+            }
+            DirectoryEntry::File(file) => &file.dirent,
+        }
+    }
+
+    pub fn name(&self) -> ArrayVec<[u8; 12]> {
+        self.dirent().filename()
+    }
+}
+
+pub struct File {
     fs: Arc<Filesystem>,
-    cluster: usize,
+    dirent: RawDirEntry,
+}
+
+impl File {
+    pub fn open(&self) -> FileCursor {
+        FileCursor::new(self)
+    }
+}
+
+pub struct FileCursor {
+    fs: Arc<Filesystem>,
+    cluster: Option<ClusterNumber>,
+    sector: usize,
+    offset: usize,
+}
+
+impl FileCursor {
+    fn new(file: &File) -> Self {
+        FileCursor {
+            fs: file.fs.clone(),
+            cluster: Some(file.dirent.first_cluster()),
+            sector: 0,
+            offset: 0,
+        }
+    }
+
+    pub async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, FatError> {
+        let mut total_read = 0;
+
+        while buf.len() > 0 {
+            if self.offset == SECTOR_SIZE {
+                self.offset = 0;
+                self.sector += 1;
+            }
+
+            if self.sector == self.fs.bpb.sectors_per_cluster() {
+                self.sector == 0;
+
+                self.cluster = match self.cluster {
+                    None => None,
+                    Some(cluster) => self.fs.next_cluster(cluster).await?,
+                };
+            }
+
+            let sector = match self.cluster {
+                None => {
+                    // EOF
+                    return Ok(total_read);
+                }
+                Some(cluster) => {
+                    self.fs.bpb.first_cluster_sector(cluster) + self.sector
+                }
+            };
+
+            let mut sector_buff: Sector = [0; SECTOR_SIZE];
+            // TODO make this read multiple sectors at a time:
+            self.fs.part.read_sectors(sector, &mut [&mut sector_buff])
+                .await
+                .map_err(FatError::Ata)?;
+
+            let byte_count = cmp::min(SECTOR_SIZE - self.offset, buf.len());
+
+            let end = self.offset + byte_count;
+
+            buf[0..byte_count].copy_from_slice(&sector_buff[self.offset..end]);
+
+            buf = &mut buf[byte_count..];
+            total_read += byte_count;
+            self.offset += byte_count;
+        }
+
+        Ok(total_read)
+    }
 }
 
 pub struct EntriesPage<F> {
-    entries: [DirectoryEntry; 16],
+    entries: [RawDirEntry; 16],
     next: F,
 }
 
 #[repr(packed)]
 #[derive(Clone, Copy, Debug)]
-pub struct DirectoryEntry {
+pub struct RawDirEntry {
     basename: [u8; 8],
     extension: [u8; 3],
     attributes: u8,
@@ -201,11 +329,27 @@ pub struct DirectoryEntry {
     size: u32,
 }
 
-impl DirectoryEntry {
+bitflags::bitflags! {
+    pub struct Attributes: u8 {
+        const READ_ONLY = 0x01;
+        const HIDDEN    = 0x02;
+        const SYSTEM    = 0x04;
+        const VOLUME_ID = 0x08;
+        const DIRECTORY = 0x10;
+        const ARCHIVE   = 0x20;
+    }
+}
+
+impl RawDirEntry {
+    pub fn attributes(&self) -> Attributes {
+        Attributes::from_bits_truncate(self.attributes)
+    }
+
     pub fn filename(&self) -> ArrayVec<[u8; 12]> {
         let mut filename = ArrayVec::new();
 
-        filename.extend(self.basename.iter().copied());
+        filename.extend(self.basename.iter()
+            .map(u8::to_ascii_lowercase));
 
         // trim trailing space
         while filename.last() == Some(&b' ') {
@@ -215,7 +359,8 @@ impl DirectoryEntry {
         if self.extension[0] != b' ' {
             filename.push(b'.');
 
-            filename.extend(self.extension.iter().copied());
+            filename.extend(self.extension.iter()
+                .map(u8::to_ascii_lowercase));
 
             // trim trailing space again
             while filename.last() == Some(&b' ') {
@@ -224,6 +369,12 @@ impl DirectoryEntry {
         }
 
         filename
+    }
+
+    fn first_cluster(&self) -> ClusterNumber {
+        let cluster_lo = self.cluster_lo as usize;
+        let cluster_hi = self.cluster_hi as usize;
+        ClusterNumber(cluster_lo | (cluster_hi << 16))
     }
 }
 
