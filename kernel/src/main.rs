@@ -12,6 +12,7 @@
 #![feature(unsize)]
 #![feature(coerce_unsized)]
 #![feature(panic_internals)]
+#![feature(arbitrary_self_types)]
 
 #[allow(unused)]
 #[macro_use]
@@ -32,12 +33,14 @@ mod util;
 
 use core::ptr;
 use core::str;
+use core::slice;
 
 use futures::stream::{self, Stream, StreamExt, TryStream, TryStreamExt};
 
 use interrupt::TrapFrame;
-use mem::page::{self, PageFlags};
+use mem::page::{self, PageFlags, PAGE_SIZE};
 use mem::phys;
+use object::ObjectRef;
 
 extern "C" {
     static mut _end: u8;
@@ -63,59 +66,75 @@ pub extern "C" fn main() -> ! {
 
     task::init();
 
-    let a_bin = include_bytes!("../../target/x86_64-kernel/userland/a.bin");
-    let a_addr = 0x1_0000_0000 as *mut u8;
-
-    let b_bin = include_bytes!("../../target/x86_64-kernel/userland/b.bin");
-    let b_addr = 0x1_0000_1000 as *mut u8;
-
     unsafe {
-        task::spawn(|task| async move {
-            {
-                use device::ide::{self, Drive};
-                use device::mbr::Mbr;
-                use fs::fat16::Fat16;
+        let page_ctx = ObjectRef::new(page::current_ctx())
+            .expect("ObjectRef::new");
 
-                let ide = ide::PRIMARY.open(Drive::A)
-                    .expect("ide::open");
+        task::spawn(page_ctx, |task| async move {
+            use device::ide::{self, Drive};
+            use device::mbr::Mbr;
+            use fs::fat16::{Fat16, DirectoryEntry};
 
-                println!("detecting primary master...");
-                println!("---> {:?}", ide.detect().await);
+            let ide = ide::PRIMARY.open(Drive::A)
+                .expect("ide::open");
 
-                let mbr = Mbr::open(ide)
-                    .expect("Mbr::open");
+            println!("detecting primary master...");
+            println!("---> {:?}", ide.detect().await);
 
-                let mut partitions = mbr.partitions().await
-                    .expect("mbr.partitions");
+            let mbr = Mbr::open(ide)
+                .expect("Mbr::open");
 
-                for part in partitions.iter() {
-                    if let Some(part) = part {
-                        crate::println!("#{} - {}, {}", part.number, part.lba, part.sectors);
-                    }
+            let mut partitions = mbr.partitions().await
+                .expect("mbr.partitions");
+
+            for part in partitions.iter() {
+                if let Some(part) = part {
+                    crate::println!("#{} - {}, {}", part.number, part.lba, part.sectors);
                 }
-
-                let fat = Fat16::open(partitions.remove(0).expect("partitions[0]")).await
-                    .expect("Fat16::open");
-
-                println!("printing root entries:");
-
-                fat.root().read_entries().try_for_each(|entry| async move {
-                    println!("{:?}", str::from_utf8(entry.filename().as_slice()).expect("str::from_utf8"));
-                    Ok(())
-                }).await.expect("read_entries stream failed:");
-
-                println!("done.");
             }
 
-            let mut task = task.setup(TrapFrame::new(a_addr as u64, 0x0));
+            let fat = Fat16::open(partitions.remove(0).expect("partitions[0]")).await
+                .expect("Fat16::open");
 
-            let phys = phys::alloc()
-                .expect("phys::alloc");
+            // find init:
+            let entry = fat.root().entry(b"init.bin")
+                .await
+                .expect("Directory::entry");
 
-            page::map(phys, a_addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
-                .expect("page::map");
+            let init = match entry {
+                Some(DirectoryEntry::File(init)) => init,
+                Some(DirectoryEntry::Dir(_)) => {
+                    panic!("/init.bin is directory");
+                }
+                None => {
+                    panic!("/init.bin does not exist");
+                }
+            };
 
-            ptr::copy(a_bin.as_ptr(), a_addr, a_bin.len());
+            // setup init task
+            let mut addr = 0x1_0000_0000 as *mut u8;
+            let mut task = task.setup(TrapFrame::new(addr as u64, 0x0));
+
+            let mut init = init.open();
+
+            // read init into userspace
+            loop {
+                let phys = phys::alloc()
+                    .expect("phys::alloc");
+
+                page::map(phys, addr, PageFlags::PRESENT | PageFlags::WRITE | PageFlags::USER)
+                    .expect("page::map");
+
+                let read = init.read(slice::from_raw_parts_mut(addr, PAGE_SIZE))
+                    .await
+                    .expect("init.read");
+
+                addr = addr.add(read);
+
+                if read < PAGE_SIZE {
+                    break;
+                }
+            }
 
             task.run_loop().await;
         }).expect("task::spawn init");

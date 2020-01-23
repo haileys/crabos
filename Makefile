@@ -6,8 +6,6 @@ KERNEL_OBJS=\
 	target/x86_64-kernel/start.o \
 	target/x86_64-kernel/isrs.o \
 	target/x86_64-kernel/aux.o \
-	target/x86_64-kernel/userland/a.bin \
-	target/x86_64-kernel/userland/b.bin \
 
 ifeq ($(BUILD),release)
 CARGO_FLAGS=--release
@@ -21,12 +19,15 @@ clean:
 	rm -f target/loader/stage*.bin
 	rm -f target/x86_64-kernel/start.o
 	cargo clean
+	make -C userland clean
 
 hdd.img: hdd.base.img target/loader/stage0.bin target/loader/stage1.bin $(KERNEL_BIN)
+	make -C userland
 	cp hdd.base.img hdd.img
 	MTOOLSRC=mtoolsrc mformat C:
 	MTOOLSRC=mtoolsrc mcopy target/loader/stage1.bin C:/KERNEL.1
 	MTOOLSRC=mtoolsrc mcopy $(KERNEL_BIN) C:/KERNEL.2
+	MTOOLSRC=mtoolsrc mcopy userland/target/bin/* C:/
 	dd if=target/loader/stage0.bin of=$@ bs=446 count=1 conv=notrunc,sync
 
 $(KERNEL_BIN): $(KERNEL_ELF)
