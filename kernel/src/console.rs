@@ -1,7 +1,6 @@
 use core::fmt::{self, Write};
-use core::marker::PhantomData;
 
-use crate::critical::{self, Critical};
+use crate::critical::Critical;
 use crate::sync::{Mutex, MutexGuard};
 
 mod vga;
@@ -20,10 +19,6 @@ impl Write for Console {
             Console::VgaText(con) => con.write_str(s),
         }
     }
-}
-
-pub fn write_failsafe(_crit: &Critical, s: &str) {
-    PortE9.write_str(s);
 }
 
 pub fn get() -> MutexGuard<'static, impl Write> {
@@ -66,8 +61,4 @@ impl Write for PortE9 {
 
         Ok(())
     }
-}
-
-struct VgaText<'a> {
-    crit: PhantomData<&'a Critical>,
 }

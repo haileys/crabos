@@ -19,6 +19,7 @@ pub fn alloc_page<T: PageSized>() -> Result<NonNull<T>, MemoryExhausted> {
     ALLOCATOR.alloc().map(NonNull::cast)
 }
 
+#[allow(unused)]
 pub unsafe fn free_page<T: PageSized>(page: NonNull<T>) {
     ALLOCATOR.free(page.cast())
 }
@@ -96,11 +97,13 @@ impl PageAllocator {
     }
 }
 
+#[allow(unused)]
 pub struct PageBox<T: PageSized> {
     page: NonNull<T>,
 }
 
 impl<T: PageSized> PageBox<T> {
+    #[allow(unused)]
     pub fn new(value: T) -> Result<Self, MemoryExhausted> {
         let page = alloc_page()?;
         unsafe { ptr::write(page.as_ptr(), value); }

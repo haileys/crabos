@@ -135,7 +135,7 @@ pub fn alloc() -> Result<Phys, MemoryExhausted> {
 
     // Safety: need unsafe to access static mut. We only ever take a mut ref to
     // PHYS_REGIONS during phys_regions_init
-    let regions = unsafe { &PHYS_REGIONS };
+    let regions = &PHYS_REGIONS;
     let mut bump_alloc = PHYS_BUMP_ALLOC.lock();
 
     alloc_new(regions, &mut *bump_alloc)

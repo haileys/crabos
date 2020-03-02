@@ -1,6 +1,5 @@
 use interface::{SysResult, SysError};
 
-use crate::interrupt::Registers;
 use crate::object::Handle;
 
 pub trait UserArg: Sized {

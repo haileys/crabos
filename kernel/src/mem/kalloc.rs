@@ -4,7 +4,6 @@ use core::ptr::{self, NonNull};
 
 use crate::mem::{kvirt, MemoryExhausted};
 use crate::mem::page::PAGE_SIZE;
-use crate::println;
 use crate::sync::Mutex;
 
 static ALLOCATOR: Mutex<Allocator> = Mutex::new(Allocator::new());
@@ -59,7 +58,6 @@ impl SizeClass {
     pub fn alloc(&mut self) -> Result<NonNull<u8>, MemoryExhausted> {
         let ptr = self.alloc_uninitialized()?;
         unsafe { ptr::write_bytes(ptr.as_ptr(), 0, self.size); }
-        println!("Allocating in size class {}: {:x?}", self.size, ptr);
         Ok(ptr)
     }
 
@@ -74,7 +72,6 @@ impl SizeClass {
     }
 
     pub unsafe fn free(&mut self, ptr: NonNull<u8>) {
-        println!("Freeing in size class {}: {:x?}", self.size, ptr);
         self.add_free(ptr);
     }
 

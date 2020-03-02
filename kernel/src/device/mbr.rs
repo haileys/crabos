@@ -1,6 +1,4 @@
 use core::mem;
-use core::ops::Range;
-use core::slice;
 
 use arrayvec::ArrayVec;
 

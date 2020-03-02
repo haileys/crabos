@@ -1,6 +1,5 @@
 use core::future::Future;
 use core::pin::Pin;
-use core::ptr;
 use core::sync::atomic::{AtomicU64, Ordering};
 use core::task::{Poll, Context, Waker, RawWaker, RawWakerVTable};
 
@@ -10,7 +9,7 @@ use alloc_collections::btree_map::BTreeMap;
 use crate::interrupt::TrapFrame;
 use crate::mem::kalloc::GlobalAlloc;
 use crate::mem::MemoryExhausted;
-use crate::object::{Handle, Object, ObjectRef};
+use crate::object::ObjectRef;
 use crate::page::{self, PageCtx};
 use crate::sync::{Arc, Mutex};
 use crate::syscall;

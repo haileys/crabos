@@ -31,11 +31,7 @@ mod syscall;
 mod task;
 mod util;
 
-use core::ptr;
-use core::str;
 use core::slice;
-
-use futures::stream::{self, Stream, StreamExt, TryStream, TryStreamExt};
 
 use interrupt::TrapFrame;
 use mem::page::{self, PageFlags, PAGE_SIZE};

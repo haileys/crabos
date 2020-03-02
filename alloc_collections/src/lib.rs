@@ -21,7 +21,6 @@
 #![feature(ptr_offset_from)]
 #![feature(rustc_attrs)]
 #![feature(receiver_trait)]
-#![feature(slice_from_raw_parts)]
 #![feature(specialization)]
 #![feature(std_internals)]
 #![feature(str_internals)]

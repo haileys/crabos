@@ -6,18 +6,6 @@ use interface::{SysResult, SysError};
 
 const MAX_USER_ADDR: u64 = 0x0000800000000000; // exclusive max
 
-fn mappable_addr(addr: u64, len: u64) -> bool {
-    if addr > MAX_USER_ADDR {
-        return false;
-    }
-
-    if addr.saturating_add(len) > MAX_USER_ADDR {
-        return false;
-    }
-
-    true
-}
-
 pub fn validate_page_align(addr: u64) -> SysResult<()> {
     if (addr & (PAGE_SIZE as u64 - 1)) != 0 {
         return Err(SysError::BadPointer);
@@ -144,6 +132,7 @@ pub fn borrow_slice<T>(addr: u64, len: u64, crit: &Critical) -> SysResult<&[T]> 
     Ok(unsafe { slice::from_raw_parts(addr as *const T, len as usize) })
 }
 
+#[allow(unused)]
 pub fn borrow<T>(addr: u64, crit: &Critical) -> SysResult<&T> {
     let slice = borrow_slice(addr, mem::size_of::<T>() as u64, crit)?;
 

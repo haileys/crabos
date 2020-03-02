@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use arrayvec::{ArrayString, ArrayVec};
+use arrayvec::ArrayString;
 use x86_64::instructions::port::Port;
 
 use crate::sync::{Mutex, MutexGuard};
@@ -9,6 +9,7 @@ use crate::util;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Drive {
     A,
+    #[allow(unused)]
     B,
 }
 
@@ -268,7 +269,9 @@ impl IdeDrive {
                 let mut model = util::array_string(&identify_data[54..94])
                     .expect("IDE device model not UTF8");
 
-                model.trim();
+                while let Some(' ') = model.chars().rev().nth(0) {
+                    model.pop();
+                }
 
                 model
             };

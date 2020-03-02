@@ -374,7 +374,7 @@ pub unsafe fn modify(virt: *mut u8, flags: PageFlags) -> Result<(), NotMapped> {
     Ok(())
 }
 
-
+#[allow(unused)]
 pub fn virt_to_phys(virt: *mut u8) -> Result<Phys, NotMapped> {
     let crit = critical::begin();
 

@@ -125,7 +125,7 @@ pub fn init() {
 pub fn put(task_id: TaskId, object: DynObjectRef) -> SysResult<Handle> {
     let mut task_handles = TASK_HANDLES.lock();
 
-    let mut handles = match task_handles.get_mut(&task_id) {
+    let handles = match task_handles.get_mut(&task_id) {
         Some(handles) => handles,
         None => {
             let handles = BTreeMap::new();
@@ -155,7 +155,7 @@ pub fn get(task_id: TaskId, handle: Handle) -> Option<DynObjectRef> {
 
 pub fn release(task_id: TaskId, handle: Handle) -> Result<DynObjectRef, ()> {
     TASK_HANDLES.lock().get_mut(&task_id)
-        .and_then(|mut map| map.remove(&handle))
+        .and_then(|map| map.remove(&handle))
         .ok_or(())
 }
 

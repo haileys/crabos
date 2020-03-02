@@ -1,27 +1,20 @@
 use core::fmt::{self, Write};
 use core::ptr;
 
-use x86_64::instructions::port::Port;
-
 use crate::console::{self, Console};
 use crate::mem::page::{self, PageFlags, PAGE_SIZE};
 use crate::mem::phys::{Phys, RawPhys};
 
-const VRAM_SIZE: usize = 8 * 1024 * 1024;
-const TEXT_ATTR: u8 = 0x07; // light grey on black
-
-#[repr(align(4096))]
-struct Vram {
-    buff: [u8; VRAM_SIZE],
-}
-
 type BiosFont = [u8; 4096];
 static mut BIOS_FONT: BiosFont = [0u8; 4096];
 
+const VRAM_SIZE: usize = 8 * 1024 * 1024;
+
 #[link_section=".unalloc"]
-static mut VRAM: Vram = Vram { buff: [0; VRAM_SIZE] };
+static mut VRAM: [u8; VRAM_SIZE] = [0; VRAM_SIZE];
 
 #[repr(packed)]
+#[allow(unused)]
 pub struct VbeModeInfo {
     attrs: u16,
     win_a: u8,
@@ -60,11 +53,11 @@ pub struct VbeModeInfo {
 #[no_mangle]
 pub unsafe extern "C" fn console_init(vbe_mode_info: *const VbeModeInfo, bios_font: *const u8) {
     // copy bios font from low memory
-    unsafe { ptr::copy(bios_font, &mut BIOS_FONT as *mut BiosFont as *mut u8, 4096); }
+    ptr::copy(bios_font, &mut BIOS_FONT as *mut BiosFont as *mut u8, 4096);
 
-    let vbe_mode_info = unsafe { &*vbe_mode_info };
+    let vbe_mode_info = &*vbe_mode_info;
 
-    let virt = &mut VRAM as *mut Vram as *mut u8;
+    let virt = &mut VRAM as *mut [u8; VRAM_SIZE] as *mut u8;
 
     for off in (0..VRAM_SIZE).step_by(PAGE_SIZE) {
         let phys = Phys::new(RawPhys(vbe_mode_info.phys_base as u64 + off as u64));
@@ -76,7 +69,7 @@ pub unsafe extern "C" fn console_init(vbe_mode_info: *const VbeModeInfo, bios_fo
 
     let mut vga = VgaText {
         vram: virt,
-        bios_font: unsafe { &BIOS_FONT },
+        bios_font: &BIOS_FONT,
         width: vbe_mode_info.x_res as usize,
         height: vbe_mode_info.y_res as usize,
         pitch: vbe_mode_info.pitch as usize,
@@ -133,7 +126,7 @@ impl VgaText {
                     .add((self.height - crab_height + y) * self.pitch)
                     .add((self.width - crab_width) * STRIDE);
                 let crab_idx = y * crab_width * STRIDE + crab_header;
-                ptr::copy(unsafe { crab.add(crab_idx) }, line, crab_width * STRIDE);
+                ptr::copy(crab.add(crab_idx), line, crab_width * STRIDE);
             }
         }
     }
@@ -191,11 +184,9 @@ impl VgaText {
                     let pos = pos + glyph_x * STRIDE;
 
                     if (glyph & (0x80 >> glyph_x)) != 0 {
-                        unsafe {
-                            ptr::write_volatile(self.vram.add(pos + 0), 0);
-                            ptr::write_volatile(self.vram.add(pos + 1), 0);
-                            ptr::write_volatile(self.vram.add(pos + 2), 0);
-                        }
+                        ptr::write_volatile(self.vram.add(pos + 0), 0);
+                        ptr::write_volatile(self.vram.add(pos + 1), 0);
+                        ptr::write_volatile(self.vram.add(pos + 2), 0);
                     }
                 }
             }

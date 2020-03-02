@@ -7,7 +7,7 @@ use crate::interrupt::{TrapFrame, Registers};
 use crate::mem::page::{self, PageFlags, MapError, PageCtx, PAGE_SIZE};
 use crate::mem::phys::{self, Phys, RawPhys};
 use crate::mem::user::{self, PageRange};
-use crate::object::{self, Handle, Object, ObjectRef, ObjectKind};
+use crate::object::{self, Handle, Object, ObjectKind};
 use crate::object::file::File;
 use crate::task;
 use crate::{critical, println};
@@ -257,24 +257,22 @@ fn create_task(page_ctx: Handle, rip: u64, rsp: u64) -> SyscallReturn {
 
     task::spawn(page_ctx, |task| async move {
         task.setup(TrapFrame::new(rip, rsp)).run_loop().await
-    });
+    })?;
 
     Ok(OK)
 }
 
-fn exit(status: u64) -> SyscallReturn {
+fn exit(_status: u64) -> SyscallReturn {
     // TODO implement
     panic!("process exited!")
 }
 
-fn read_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
+fn read_file(_file: Handle, _buf: u64, _nbyte: u64) -> SyscallReturn {
     // TODO implement
     panic!("read_file")
 }
 
 async fn write_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
-    use object::file::File;
-
     let file = object::get(task::current(), file)
         .ok_or(SysError::BadHandle)?
         .downcast::<File>()?;

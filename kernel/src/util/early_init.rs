@@ -37,7 +37,6 @@ impl<T> EarlyInit<T> {
     }
 }
 
-
 impl<T> Deref for EarlyInit<T> {
     type Target = T;
 

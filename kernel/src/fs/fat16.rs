@@ -1,8 +1,5 @@
 use core::cmp;
-use core::future::Future;
-use core::iter;
 use core::mem;
-use core::str;
 
 use arrayvec::ArrayVec;
 use futures::future;
@@ -11,7 +8,6 @@ use futures::stream::{self, Stream, StreamExt, TryStream, TryStreamExt};
 
 use crate::device::ide::{AtaError, Sector};
 use crate::device::mbr::Partition;
-use crate::mem::kalloc::GlobalAlloc;
 use crate::sync::Arc;
 
 const DIR_ENTRY_SIZE: usize = 32;
@@ -193,7 +189,7 @@ impl Directory {
     }
 
     pub async fn entry(&self, name: &[u8]) -> Result<Option<DirectoryEntry>, FatError> {
-        let mut entries = self
+        let entries = self
             .entries()
             .try_filter(|entry| {
                 let entry_name = entry.name();
@@ -267,7 +263,7 @@ impl FileCursor {
             }
 
             if self.sector == self.fs.bpb.sectors_per_cluster() {
-                self.sector == 0;
+                self.sector = 0;
 
                 self.cluster = match self.cluster {
                     None => None,
@@ -304,11 +300,6 @@ impl FileCursor {
 
         Ok(total_read)
     }
-}
-
-pub struct EntriesPage<F> {
-    entries: [RawDirEntry; 16],
-    next: F,
 }
 
 #[repr(packed)]
