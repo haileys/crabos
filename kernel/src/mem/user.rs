@@ -132,7 +132,7 @@ pub fn validate_read(addr: u64, len: u64, crit: &Critical) -> SysResult<()> {
 /// Borrows a slice from user space. `len` is the number of elements, not the
 /// number of bytes.
 pub fn borrow_slice<T>(addr: u64, len: u64, crit: &Critical) -> SysResult<&[T]> {
-    let byte_len = len.checked_mul(mem::size_of::<T> as u64)
+    let byte_len = len.checked_mul(mem::size_of::<T>() as u64)
         .ok_or(SysError::BadPointer)?;
 
     validate_read(addr, byte_len, crit)?;

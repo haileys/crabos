@@ -10,6 +10,8 @@ global syscall_get_page_context
 global syscall_create_task
 global syscall_exit
 global syscall_map_physical_memory
+global syscall_read_file
+global syscall_write_file
 
 extern main
 
@@ -92,5 +94,15 @@ syscall_exit:
 
 syscall_map_physical_memory:
     mov rax, 12
+    int 0x7f
+    ret
+
+syscall_read_file:
+    mov rax, 13
+    int 0x7f
+    ret
+
+syscall_write_file:
+    mov rax, 14
     int 0x7f
     ret

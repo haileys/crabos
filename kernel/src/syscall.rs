@@ -7,7 +7,8 @@ use crate::interrupt::{TrapFrame, Registers};
 use crate::mem::page::{self, PageFlags, MapError, PageCtx, PAGE_SIZE};
 use crate::mem::phys::{self, Phys, RawPhys};
 use crate::mem::user::{self, PageRange};
-use crate::object::{self, Handle, Object, ObjectKind};
+use crate::object::{self, Handle, Object, ObjectRef, ObjectKind};
+use crate::object::file::File;
 use crate::task;
 use crate::{critical, println};
 
@@ -41,6 +42,8 @@ async fn dispatch0(regs: &mut Registers) -> SyscallReturn {
         Syscall::SpawnTask => create_task(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
         Syscall::Exit => exit(UserArg::from_reg(regs.rdi)?),
         Syscall::MapPhysicalMemory => map_physical_memory(regs.rdi, regs.rsi, regs.rdx, regs.rcx),
+        Syscall::WriteFile => write_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
+        Syscall::ReadFile => read_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
     }
 }
 
@@ -262,4 +265,25 @@ fn create_task(page_ctx: Handle, rip: u64, rsp: u64) -> SyscallReturn {
 fn exit(status: u64) -> SyscallReturn {
     // TODO implement
     panic!("process exited!")
+}
+
+fn read_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
+    // TODO implement
+    panic!("read_file")
+}
+
+async fn write_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
+    use object::file::File;
+
+    let file = object::get(task::current(), file)
+        .ok_or(SysError::BadHandle)?
+        .downcast::<File>()?;
+
+    let crit = critical::begin();
+    let buf = user::borrow_slice::<u8>(buf, nbyte, &crit)?;
+
+    file.object()
+        .write(buf)
+        .await
+        .map(|sz| sz as u64)
 }

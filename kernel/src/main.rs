@@ -136,6 +136,13 @@ pub extern "C" fn main() -> ! {
                 }
             }
 
+            // set up initial console object
+            let console = ObjectRef::new(object::file::File::Console)
+                .expect("ObjectRef::new");
+
+            object::put(task::current(), console.as_dyn()) // implicitly handle 1
+                .expect("object::put");
+
             task.run_loop().await;
         }).expect("task::spawn init");
 

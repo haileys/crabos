@@ -1,3 +1,5 @@
+pub mod file;
+
 use core::num::NonZeroU64;
 use core::marker::PhantomData;
 
@@ -14,6 +16,7 @@ use crate::util::EarlyInit;
 #[derive(Debug)]
 pub enum ObjectKind {
     PageCtx(PageCtx),
+    File(file::File),
 }
 
 pub trait ObjectKindT {
@@ -28,6 +31,20 @@ impl ObjectKindT for PageCtx {
 
     fn as_ref(kind: &ObjectKind) -> SysResult<&Self> {
         if let ObjectKind::PageCtx(ref a) = kind {
+            Ok(a)
+        } else {
+            Err(SysError::WrongObjectKind)
+        }
+    }
+}
+
+impl ObjectKindT for file::File {
+    fn wrap(self) -> ObjectKind {
+        ObjectKind::File(self)
+    }
+
+    fn as_ref(kind: &ObjectKind) -> SysResult<&Self> {
+        if let ObjectKind::File(ref a) = kind {
             Ok(a)
         } else {
             Err(SysError::WrongObjectKind)
