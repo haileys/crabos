@@ -9,7 +9,7 @@ enum64! {
         7   => Debug,
         8   => SetPageContext,
         9   => GetPageContext,
-        10  => CreateTask,
+        10  => SpawnTask,
         11  => Exit,
         12  => MapPhysicalMemory,
     }

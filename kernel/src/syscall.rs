@@ -38,7 +38,7 @@ async fn dispatch0(regs: &mut Registers) -> SyscallReturn {
         Syscall::Debug => debug(regs),
         Syscall::SetPageContext => set_page_context(UserArg::from_reg(regs.rdi)?),
         Syscall::GetPageContext => get_page_context(),
-        Syscall::CreateTask => create_task(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
+        Syscall::SpawnTask => create_task(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
         Syscall::Exit => exit(UserArg::from_reg(regs.rdi)?),
         Syscall::MapPhysicalMemory => map_physical_memory(regs.rdi, regs.rsi, regs.rdx, regs.rcx),
     }
