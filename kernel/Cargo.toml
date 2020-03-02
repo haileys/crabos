@@ -14,3 +14,4 @@ interface = { path = "../interface" }
 kernel_derive = { path = "../kernel_derive" }
 static_assertions = "0.3"
 x86_64 = "0.7"
+itertools = { version = "0.8", default-features = false }
