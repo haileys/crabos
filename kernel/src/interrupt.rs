@@ -103,6 +103,8 @@ pub struct TrapFrame {
     pub rip: u64,
     pub cs: u64,
     pub rflags: u64,
+    // TODO these fields may not exist in intra privilege level interrupt,
+    // this is unsafe:
     pub rsp: u64,
     pub ss: u64,
 }
@@ -122,15 +124,28 @@ impl TrapFrame {
     }
 }
 
+pub enum TrapOrigin {
+    User,
+    Kernel,
+}
+
 impl TrapFrame {
     pub fn interrupt(&self) -> Interrupt {
         (self.interrupt_vector as u8).into()
+    }
+
+    pub fn origin(&self) -> TrapOrigin {
+        match self.cs & 3 {
+            0 => TrapOrigin::Kernel,
+            3 => TrapOrigin::User,
+            _ => panic!("unknown origin code segment: {:x?}", self.cs),
+        }
     }
 }
 
 #[no_mangle]
 pub extern "C" fn interrupt(frame: &mut TrapFrame) {
-    // crate::println!("{:#x?}", frame);
+    x86_64::instructions::interrupts::enable();
 
     match frame.interrupt() {
         Interrupt::Irq(irq) => {
@@ -139,7 +154,16 @@ pub extern "C" fn interrupt(frame: &mut TrapFrame) {
 
             if irq == 0 {
                 // PIT
-                unsafe { task::switch(frame); }
+
+                // only switch tasks if this interrupt arrived from user mode:
+                match frame.origin() {
+                    TrapOrigin::User => {
+                        unsafe { task::switch(frame); }
+                    }
+                    TrapOrigin::Kernel => {
+                        // do nothing
+                    }
+                }
             }
 
             if irq == 1 {
@@ -167,7 +191,14 @@ pub extern "C" fn interrupt(frame: &mut TrapFrame) {
             fault(frame, flags, address);
         }
         Interrupt::Syscall => {
-            unsafe { task::dispatch_syscall(frame); }
+            match frame.origin() {
+                TrapOrigin::User => {
+                    unsafe { task::dispatch_syscall(frame); }
+                }
+                TrapOrigin::Kernel => {
+                    panic!("syscall arrived from kernel mode!");
+                }
+            }
         }
         Interrupt::Other(vector) => {
             panic!("unexpected interrupt: {:#2x}", vector);
