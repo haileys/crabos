@@ -2,6 +2,7 @@ use x86_64::instructions::port::Port;
 use x86_64::registers::control::Cr2;
 use x86_64::registers::rflags::RFlags;
 
+use crate::device::keyboard;
 use crate::task::{self, SEG_UCODE, SEG_UDATA};
 
 pub const IRQ_BASE: u8 = 0x20;
@@ -168,8 +169,7 @@ pub extern "C" fn interrupt(frame: &mut TrapFrame) {
 
             if irq == 1 {
                 // keyboard
-                let mut keyboard = Port::<u8>::new(0x60);
-                unsafe { keyboard.read(); }
+                unsafe { keyboard::interrupt(); }
             }
 
             // acknowledge interupt:

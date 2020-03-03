@@ -1,21 +1,30 @@
 global main
 
+extern syscall_read_file
 extern syscall_write_file
 extern syscall_debug
 extern syscall_map_physical_memory
 extern syscall_release_page
 
 hello_msg:
-    db "Hello world from userland!"
+    db 10, 10, "Welcome.", 10, 10
     .end:
 
+read_buf:
+    db 0
+
 main:
+    mov rdi, 1
+    mov rsi, read_buf
+    mov rdx, 1
+    call syscall_read_file
+
     mov rdi, 1
     mov rsi, hello_msg
     mov rdx, hello_msg.end - hello_msg
     call syscall_write_file
-    mov rbx, rax
-    call syscall_debug
+
+    jmp $
 
     ; map VBE mode info in low memory:
     mov rdi, 0x00006000

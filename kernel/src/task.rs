@@ -211,7 +211,9 @@ pub unsafe fn switch(frame: &mut TrapFrame) {
 
                 match fut.as_mut().poll(&mut cx) {
                     Poll::Ready(()) => panic!("task finished!"),
-                    Poll::Pending => {}
+                    Poll::Pending => {
+                        // TODO set task state to sleep
+                    }
                 }
 
                 previous_task_id = Some(task_id);

@@ -58,6 +58,9 @@ pub extern "C" fn main() -> ! {
 
         // init pit
         device::pit::init();
+
+        // init keyboard
+        device::keyboard::init();
     }
 
     task::init();

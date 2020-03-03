@@ -117,6 +117,13 @@ pub fn validate_read(addr: u64, len: u64, crit: &Critical) -> SysResult<()> {
     validate_map(&page_range, PageFlags::empty(), crit)
 }
 
+pub fn validate_write(addr: u64, len: u64, crit: &Critical) -> SysResult<()> {
+    // explicitly not checking for PRESENT flag, as this prevent us from
+    // faulting in pages
+    let page_range = PageRange::containing(addr, len)?;
+    validate_map(&page_range, PageFlags::WRITE, crit)
+}
+
 /// Borrows a slice from user space. `len` is the number of elements, not the
 /// number of bytes.
 pub fn borrow_slice<T>(addr: u64, len: u64, crit: &Critical) -> SysResult<&[T]> {
@@ -130,6 +137,21 @@ pub fn borrow_slice<T>(addr: u64, len: u64, crit: &Critical) -> SysResult<&[T]> 
     // by the kernel while this critical section is held, but importantly at
     // least protects us from concurrent modification by other processes.
     Ok(unsafe { slice::from_raw_parts(addr as *const T, len as usize) })
+}
+
+/// Borrows a mut slice from user space. `len` is the number of elements, not
+/// the number of bytes.
+pub fn borrow_slice_mut<T>(addr: u64, len: u64, crit: &Critical) -> SysResult<&mut [T]> {
+    let byte_len = len.checked_mul(mem::size_of::<T>() as u64)
+        .ok_or(SysError::BadPointer)?;
+
+    validate_write(addr, byte_len, crit)?;
+
+    // Safety(UNSAFE): ref lifetime is tied to critical section lifetime.
+    // This could result in bad memory access if the page tables are mutated
+    // by the kernel while this critical section is held, but importantly at
+    // least protects us from concurrent modification by other processes.
+    Ok(unsafe { slice::from_raw_parts_mut(addr as *mut T, len as usize) })
 }
 
 #[allow(unused)]

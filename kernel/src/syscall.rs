@@ -42,8 +42,8 @@ async fn dispatch0(regs: &mut Registers) -> SyscallReturn {
         Syscall::SpawnTask => create_task(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
         Syscall::Exit => exit(UserArg::from_reg(regs.rdi)?),
         Syscall::MapPhysicalMemory => map_physical_memory(regs.rdi, regs.rsi, regs.rdx, regs.rcx),
+        Syscall::ReadFile => read_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
         Syscall::WriteFile => write_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
-        Syscall::ReadFile => read_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
     }
 }
 
@@ -267,9 +267,18 @@ fn exit(_status: u64) -> SyscallReturn {
     panic!("process exited!")
 }
 
-fn read_file(_file: Handle, _buf: u64, _nbyte: u64) -> SyscallReturn {
-    // TODO implement
-    panic!("read_file")
+async fn read_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
+    let file = object::get(task::current(), file)
+        .ok_or(SysError::BadHandle)?
+        .downcast::<File>()?;
+
+    let crit = critical::begin();
+    let buf = user::borrow_slice_mut::<u8>(buf, nbyte, &crit)?;
+
+    file.object()
+        .read(buf)
+        .await
+        .map(|sz| sz as u64)
 }
 
 async fn write_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {

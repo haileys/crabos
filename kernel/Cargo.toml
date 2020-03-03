@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 alloc_collections = { path = "../alloc_collections" }
+arraydeque = { version = "0.4", default-features = false }
 arrayvec = { version = "0.5", default-features = false }
 bitflags = "1.0"
 core = { package = "core-futures-tls", version = "0.1" }
