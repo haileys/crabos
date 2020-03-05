@@ -4,9 +4,9 @@ unsafe fn syscall0(vector: Syscall) -> u64 {
     let ret: u64;
 
     asm!("int 0x7f" :
-        "=rax"(ret)
+        "={rax}"(ret)
     :
-        "rax"(vector as u64)
+        "{rax}"(vector as u64)
     :: "intel");
 
     ret
@@ -16,10 +16,10 @@ unsafe fn syscall1(vector: Syscall, a: u64) -> u64 {
     let ret: u64;
 
     asm!("int 0x7f" :
-        "=rax"(ret)
+        "={rax}"(ret)
     :
-        "rax"(vector as u64),
-        "rdi"(a)
+        "{rax}"(vector as u64),
+        "{rdi}"(a)
     :: "intel");
 
     ret
@@ -29,11 +29,11 @@ unsafe fn syscall2(vector: Syscall, a: u64, b: u64) -> u64 {
     let ret: u64;
 
     asm!("int 0x7f" :
-        "=rax"(ret)
+        "={rax}"(ret)
     :
-        "rax"(vector as u64),
-        "rdi"(a),
-        "rsi"(b)
+        "{rax}"(vector as u64),
+        "{rdi}"(a),
+        "{rsi}"(b)
     :: "intel");
 
     ret
@@ -43,12 +43,12 @@ unsafe fn syscall3(vector: Syscall, a: u64, b: u64, c: u64) -> u64 {
     let ret: u64;
 
     asm!("int 0x7f" :
-        "=rax"(ret)
+        "={rax}"(ret)
     :
-        "rax"(vector as u64),
-        "rdi"(a),
-        "rsi"(b),
-        "rdx"(c)
+        "{rax}"(vector as u64),
+        "{rdi}"(a),
+        "{rsi}"(b),
+        "{rdx}"(c)
     :: "intel");
 
     ret
@@ -58,13 +58,13 @@ unsafe fn syscall4(vector: Syscall, a: u64, b: u64, c: u64, d: u64) -> u64 {
     let ret: u64;
 
     asm!("int 0x7f" :
-        "=rax"(ret)
+        "={rax}"(ret)
     :
-        "rax"(vector as u64),
-        "rdi"(a),
-        "rsi"(b),
-        "rdx"(c),
-        "rcx"(d)
+        "{rax}"(vector as u64),
+        "{rdi}"(a),
+        "{rsi}"(b),
+        "{rdx}"(c),
+        "{rcx}"(d)
     :: "intel");
 
     ret
