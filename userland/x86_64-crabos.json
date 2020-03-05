@@ -1,0 +1,28 @@
+{
+    "arch": "x86_64",
+    "data-layout": "e-m:e-i64:64-f80:128-n8:16:32:64-S128",
+    "disable-redzone": false,
+    "executables": true,
+    "features": "-mmx,-sse,+soft-float",
+    "linker": "x86_64-elf-ld",
+    "linker-flavor": "ld",
+    "llvm-target": "x86_64-unknown-none",
+    "morestack": false,
+    "os": "none",
+    "panic-strategy": "abort",
+    "target-c-int-width": "32",
+    "target-endian": "little",
+    "target-pointer-width": "64",
+    "relocation-model": "static",
+    "code-model": "small",
+    "emit-debug-gdb-scripts": false,
+
+    "pre-link-args": {
+        "ld": [
+            "--no-relax",
+            "--orphan-handling=error",
+            "-T", "linker.ld",
+            "target/x86_64-crabos/crt0.o"
+        ]
+    }
+}
