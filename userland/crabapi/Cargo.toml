@@ -5,4 +5,5 @@ authors = ["Hailey Somerville <hailey@hailey.lol>"]
 edition = "2018"
 
 [dependencies]
+arrayvec = { version = "0.5", default-features = false }
 interface = { path = "../../interface" }
