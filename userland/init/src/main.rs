@@ -5,7 +5,7 @@
 
 extern crate crabapi;
 
-#[export_name = "main"]
+#[no_mangle]
 pub extern "C" fn main() {
     let mut buf = [0u8; 32];
     unsafe { crabapi::syscall::read_file(1, buf.as_mut_ptr(), buf.len() as u64); }
