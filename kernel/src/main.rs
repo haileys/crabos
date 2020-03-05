@@ -111,7 +111,7 @@ pub extern "C" fn main() -> ! {
             };
 
             // setup init task
-            let mut addr = 0x1_0000_0000 as *mut u8;
+            let mut addr = 0x1000_0000 as *mut u8;
             let mut task = task.setup(TrapFrame::new(addr as u64, 0x0));
 
             let mut init = init.open();
