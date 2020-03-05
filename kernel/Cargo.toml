@@ -9,7 +9,7 @@ alloc_collections = { path = "../alloc_collections" }
 arraydeque = { version = "0.4", default-features = false }
 arrayvec = { version = "0.5", default-features = false }
 bitflags = "1.0"
-core = { package = "core-futures-tls", version = "0.1" }
+core = { package = "core-futures-tls", git = "https://github.com/haileysome/core-futures-tls", rev = "ef4f805a87e03b70a1ce1c793d869176442276ed" }
 futures = { version = "0.3", default-features = false }
 interface = { path = "../interface" }
 kernel_derive = { path = "../kernel_derive" }
