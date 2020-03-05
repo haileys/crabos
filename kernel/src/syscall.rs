@@ -20,7 +20,7 @@ pub async fn dispatch(frame: &mut TrapFrame) {
 
     frame.regs.rax = match result {
         Ok(u) => u,
-        Err(e) => e.into(),
+        Err(e) => e as u64,
     };
 }
 
