@@ -1,5 +1,5 @@
 global _start
-extern main_
+extern main
 extern syscall_alloc_page
 extern syscall_exit
 
@@ -22,7 +22,7 @@ _start:
     ; setup stack
     mov rsp, STACK_TOP
 
-    call main_
+    call main
 
     mov rdi, rax
     call syscall_exit

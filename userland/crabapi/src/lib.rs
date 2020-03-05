@@ -5,4 +5,4 @@
 #![feature(start)]
 
 mod panic;
-mod syscall;
+pub mod syscall;
