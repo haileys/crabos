@@ -34,5 +34,6 @@ enum64! {
 }
 
 pub const OK: u64 = 0;
+pub const ERR_FLAG: u64 = 0x8000_0000_0000_0000;
 
 pub type SysResult<T> = Result<T, SysError>;
