@@ -58,6 +58,7 @@ struct MbrEntry {
     sectors: u32,
 }
 
+#[derive(Debug)]
 pub struct Partition {
     drive: Arc<IdeDrive>,
     pub number: usize,

@@ -1,9 +1,17 @@
 use core::ops::{Drop, Deref, DerefMut};
 use core::cell::UnsafeCell;
+use core::fmt::{self, Debug};
+
 use crate::critical::{self, Critical};
 
 pub struct Mutex<T> {
     inner: UnsafeCell<MutexInner<T>>,
+}
+
+impl<T> Debug for Mutex<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Mutex({:?})", self)
+    }
 }
 
 unsafe impl<T> Sync for Mutex<T> {}

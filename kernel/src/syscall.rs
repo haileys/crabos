@@ -7,8 +7,8 @@ use crate::interrupt::{TrapFrame, Registers};
 use crate::mem::page::{self, PageFlags, MapError, PageCtx, PAGE_SIZE};
 use crate::mem::phys::{self, Phys, RawPhys};
 use crate::mem::user::{self, PageRange};
-use crate::object::{self, Handle, Object, ObjectKind};
-use crate::object::file::File;
+use crate::object::{self, Handle, Object, ObjectKind, ObjectRef};
+use crate::fs::vfs::File;
 use crate::task;
 use crate::{critical, println};
 
@@ -39,11 +39,12 @@ async fn dispatch0(regs: &mut Registers) -> SyscallReturn {
         Syscall::Debug => debug(regs),
         Syscall::SetPageContext => set_page_context(UserArg::from_reg(regs.rdi)?),
         Syscall::GetPageContext => get_page_context(),
-        Syscall::SpawnTask => create_task(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
+        Syscall::CreateTask => create_task(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
         Syscall::Exit => exit(UserArg::from_reg(regs.rdi)?),
         Syscall::MapPhysicalMemory => map_physical_memory(regs.rdi, regs.rsi, regs.rdx, regs.rcx),
         Syscall::ReadFile => read_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
         Syscall::WriteFile => write_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
+        Syscall::OpenFile => open_file(regs.rdi, regs.rsi, regs.rdx).await,
     }
 }
 
@@ -255,7 +256,9 @@ fn create_task(page_ctx: Handle, rip: u64, rsp: u64) -> SyscallReturn {
         .downcast::<PageCtx>()?
         .clone();
 
-    task::spawn(page_ctx, |task| async move {
+    let filesystem = task::get_filesystem();
+
+    task::spawn(page_ctx, filesystem, |task| async move {
         task.setup(TrapFrame::new(rip, rsp)).run_loop().await
     })?;
 
@@ -293,4 +296,24 @@ async fn write_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
         .write(buf)
         .await
         .map(|sz| sz as u64)
+}
+
+bitflags! {
+    pub struct OpenFileFlags: u64 {
+        const WRITE = 0x01;
+    }
+}
+
+async fn open_file(path: u64, path_len: u64, flags: u64) -> SyscallReturn {
+    crate::println!("open_file: {:x?}, {:x?}, {:x?}", path, path_len, flags);
+    let crit = critical::begin();
+    let path = user::borrow_slice::<u8>(path, path_len, &crit)?;
+
+    let flags = OpenFileFlags::from_bits(flags)
+        .ok_or(SysError::IllegalValue)?;
+
+    let fs = task::get_filesystem().ok_or(SysError::NoFile)?;
+    let file = ObjectRef::new(fs.open(path).await?)?;
+
+    Ok(object::put(task::current(), file.as_dyn())?.into_u64())
 }

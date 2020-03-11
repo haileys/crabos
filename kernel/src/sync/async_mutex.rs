@@ -7,8 +7,9 @@ use core::task::{Poll, Waker};
 
 use futures::future;
 
-use crate::util::AtomicList;
 use crate::critical::{self, Critical};
+use crate::mem::MemoryExhausted;
+use crate::util::AtomicList;
 
 pub struct AsyncMutex<T> {
     value: UnsafeCell<T>,
@@ -33,11 +34,14 @@ impl<T> AsyncMutex<T> {
         }
     }
 
-    pub fn lock<'a>(&'a self) -> impl Future<Output = AsyncMutexGuard<'a, T>> + 'a {
+    pub fn lock<'a>(&'a self) -> impl Future<Output = Result<AsyncMutexGuard<'a, T>, MemoryExhausted>> + 'a {
         future::poll_fn(move |ctx| {
             // always push a waker to resolve race condition between swapped
             // locked value and pushing a waker
-            self.wakers.push_front(ctx.waker().clone());
+            match self.wakers.push_front(ctx.waker().clone()) {
+                Ok(()) => {}
+                Err(e) => { return Poll::Ready(Err(e)); }
+            }
 
             let previous = self.locked.swap(true, Ordering::SeqCst);
 
@@ -45,9 +49,9 @@ impl<T> AsyncMutex<T> {
                 // we got the lock!
                 // just leave our waker in the list for now... it's not a
                 // problem to spuriously wake up
-                return Poll::Ready(AsyncMutexGuard {
+                return Poll::Ready(Ok(AsyncMutexGuard {
                     mutex: self,
-                });
+                }));
             }
 
             Poll::Pending

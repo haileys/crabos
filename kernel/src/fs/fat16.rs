@@ -5,18 +5,22 @@ use arrayvec::ArrayVec;
 use futures::future;
 use futures::pin_mut;
 use futures::stream::{self, Stream, StreamExt, TryStream, TryStreamExt};
+use interface::{SysError, SysResult};
 
 use crate::device::ide::{AtaError, Sector};
 use crate::device::mbr::Partition;
-use crate::sync::Arc;
+use crate::mem::MemoryExhausted;
+use crate::sync::{Arc, AsyncMutex};
 
 const DIR_ENTRY_SIZE: usize = 32;
 const SECTOR_SIZE: usize = 512;
 
+#[derive(Debug)]
 pub struct Fat16 {
     fs: Arc<Filesystem>,
 }
 
+#[derive(Debug)]
 struct Filesystem {
     part: Partition,
     bpb: BiosParameterBlock,
@@ -30,7 +34,17 @@ pub enum OpenError {
 
 #[derive(Debug)]
 pub enum FatError {
+    MemoryExhausted,
     Ata(AtaError),
+}
+
+impl From<FatError> for SysError {
+    fn from(e: FatError) -> Self {
+        match e {
+            FatError::MemoryExhausted => SysError::MemoryExhausted,
+            FatError::Ata(_) => SysError::IoError,
+        }
+    }
 }
 
 impl From<AtaError> for FatError {
@@ -39,16 +53,22 @@ impl From<AtaError> for FatError {
     }
 }
 
+impl From<MemoryExhausted> for FatError {
+    fn from(e: MemoryExhausted) -> FatError {
+        FatError::MemoryExhausted
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 struct ClusterNumber(usize);
 
 impl Fat16 {
-    pub async fn open(part: Partition) -> Result<Self, OpenError> {
+    pub async fn open(part: Partition) -> Result<Self, FatError> {
         let bpb = BiosParameterBlock::read(&part).await
-            .map_err(OpenError::Ata)?;
+            .map_err(FatError::Ata)?;
 
         let fs = Arc::new(Filesystem { part, bpb })
-            .map_err(|_| OpenError::MemoryExhausted)?;
+            .map_err(|_| FatError::MemoryExhausted)?;
 
         Ok(Fat16 { fs })
     }
@@ -117,11 +137,13 @@ impl Filesystem {
     }
 }
 
+#[derive(Debug)]
 enum DirectoryKind {
     Root,
-    Sub(RawDirEntry),
+    Sub(DirEntry),
 }
 
+#[derive(Debug)]
 pub struct Directory {
     fs: Arc<Filesystem>,
     kind: DirectoryKind,
@@ -129,7 +151,7 @@ pub struct Directory {
 
 impl Directory {
     fn directory_sectors(&self) -> impl TryStream<Ok = usize, Error = AtaError> + '_ {
-        match self.kind {
+        match &self.kind {
             DirectoryKind::Root => {
                 let first_sector = self.fs.bpb.first_root_dir_sector();
                 let sector_count = self.fs.bpb.root_dir_sector_count();
@@ -139,7 +161,7 @@ impl Directory {
                     .left_stream()
             }
             DirectoryKind::Sub(dirent) => {
-                self.fs.sector_chain(dirent.first_cluster())
+                self.fs.sector_chain(dirent.dirent().first_cluster())
                     .right_stream()
             }
         }
@@ -171,24 +193,21 @@ impl Directory {
             .take_while(|entry| future::ready(entry.as_ref().map(|e| e.basename[0] != 0).unwrap_or(true))) // end
     }
 
-    pub fn entries(&self) -> impl TryStream<Ok = DirectoryEntry, Error = FatError> + '_ {
+    pub fn entries(&self) -> impl TryStream<Ok = DirEntry, Error = FatError> + '_ {
         self.read_entries()
-            .map_ok(move |dirent| {
-                if dirent.attributes().contains(Attributes::DIRECTORY) {
-                    DirectoryEntry::Dir(Directory {
-                        fs: self.fs.clone(),
-                        kind: DirectoryKind::Sub(dirent),
-                    })
-                } else {
-                    DirectoryEntry::File(File {
-                        fs: self.fs.clone(),
-                        dirent: dirent,
-                    })
-                }
+            .and_then(move |dirent| {
+                let parent = match &self.kind {
+                    DirectoryKind::Root => None,
+                    DirectoryKind::Sub(dirent) => Some(dirent.clone()),
+                };
+
+                future::ready(
+                    DirEntry::new(self.fs.clone(), parent, dirent)
+                        .map_err(|e| e.into()))
             })
     }
 
-    pub async fn entry(&self, name: &[u8]) -> Result<Option<DirectoryEntry>, FatError> {
+    pub async fn entry(&self, name: &[u8]) -> Result<Option<DirEntry>, FatError> {
         let entries = self
             .entries()
             .try_filter(|entry| {
@@ -204,80 +223,119 @@ impl Directory {
     }
 }
 
-pub enum DirectoryEntry {
-    Dir(Directory),
-    File(File),
+// TODO implement directory entry locking/unlocking logic on this type
+#[derive(Debug)]
+pub struct DirEntryShared {
+    fs: Arc<Filesystem>,
+    parent: Option<DirEntry>,
+    dirent: RawDirEntry,
 }
 
-impl DirectoryEntry {
+impl Drop for DirEntryShared {
+    fn drop(&mut self) {
+        // TOOD implement unlocking logic here..
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct DirEntry {
+    shared: Arc<DirEntryShared>,
+}
+
+impl DirEntry {
+    fn new(fs: Arc<Filesystem>, parent: Option<DirEntry>, dirent: RawDirEntry) -> Result<Self, MemoryExhausted> {
+        Ok(DirEntry {
+            shared: Arc::new(DirEntryShared {
+                fs,
+                parent,
+                dirent,
+            })?,
+        })
+    }
+
     fn dirent(&self) -> &RawDirEntry {
-        match self {
-            DirectoryEntry::Dir(dir) => match dir.kind {
-                DirectoryKind::Root => panic!("impossible"),
-                DirectoryKind::Sub(ref dirent) => dirent,
-            }
-            DirectoryEntry::File(file) => &file.dirent,
-        }
+        &self.shared.dirent
     }
 
     pub fn name(&self) -> ArrayVec<[u8; 12]> {
         self.dirent().filename()
     }
-}
 
-pub struct File {
-    fs: Arc<Filesystem>,
-    dirent: RawDirEntry,
-}
+    pub fn is_dir(&self) -> bool {
+        self.dirent().attributes().contains(Attributes::DIRECTORY)
+    }
 
-impl File {
-    pub fn open(&self) -> FileCursor {
-        FileCursor::new(self)
+    pub fn open(&self) -> Result<Open, FatError> {
+        let fs = self.shared.fs.clone();
+
+        if self.is_dir() {
+            Ok(Open::Dir(Directory {
+                fs,
+                kind: DirectoryKind::Sub(self.clone()),
+            }))
+        } else {
+            let seek = Seek {
+                cluster: Some(self.dirent().first_cluster()),
+                sector: 0,
+                offset: 0,
+            };
+
+            Ok(Open::File(File {
+                fs,
+                dirent: self.clone(),
+                seek: AsyncMutex::new(seek),
+            }))
+        }
     }
 }
 
-pub struct FileCursor {
-    fs: Arc<Filesystem>,
+#[derive(Debug)]
+pub enum Open {
+    File(File),
+    Dir(Directory),
+}
+
+#[derive(Debug)]
+struct Seek {
     cluster: Option<ClusterNumber>,
     sector: usize,
     offset: usize,
 }
 
-impl FileCursor {
-    fn new(file: &File) -> Self {
-        FileCursor {
-            fs: file.fs.clone(),
-            cluster: Some(file.dirent.first_cluster()),
-            sector: 0,
-            offset: 0,
-        }
-    }
+#[derive(Debug)]
+pub struct File {
+    fs: Arc<Filesystem>,
+    dirent: DirEntry,
+    seek: AsyncMutex<Seek>,
+}
 
-    pub async fn read(&mut self, mut buf: &mut [u8]) -> Result<usize, FatError> {
+impl File {
+    pub async fn read(&self, mut buf: &mut [u8]) -> Result<usize, FatError> {
+        let mut seek = self.seek.lock().await?;
         let mut total_read = 0;
 
         while buf.len() > 0 {
-            if self.offset == SECTOR_SIZE {
-                self.offset = 0;
-                self.sector += 1;
+            if seek.offset == SECTOR_SIZE {
+                seek.offset = 0;
+                seek.sector += 1;
             }
 
-            if self.sector == self.fs.bpb.sectors_per_cluster() {
-                self.sector = 0;
+            if seek.sector == self.fs.bpb.sectors_per_cluster() {
+                seek.sector = 0;
 
-                self.cluster = match self.cluster {
+                seek.cluster = match seek.cluster {
                     None => None,
                     Some(cluster) => self.fs.next_cluster(cluster).await?,
                 };
             }
 
-            let sector = match self.cluster {
+            let sector = match seek.cluster {
                 None => {
                     // EOF
                     return Ok(total_read);
                 }
                 Some(cluster) => {
-                    self.fs.bpb.first_cluster_sector(cluster) + self.sector
+                    self.fs.bpb.first_cluster_sector(cluster) + seek.sector
                 }
             };
 
@@ -287,15 +345,15 @@ impl FileCursor {
                 .await
                 .map_err(FatError::Ata)?;
 
-            let byte_count = cmp::min(SECTOR_SIZE - self.offset, buf.len());
+            let byte_count = cmp::min(SECTOR_SIZE - seek.offset, buf.len());
 
-            let end = self.offset + byte_count;
+            let end = seek.offset + byte_count;
 
-            buf[0..byte_count].copy_from_slice(&sector_buff[self.offset..end]);
+            buf[0..byte_count].copy_from_slice(&sector_buff[seek.offset..end]);
 
             buf = &mut buf[byte_count..];
             total_read += byte_count;
-            self.offset += byte_count;
+            seek.offset += byte_count;
         }
 
         Ok(total_read)

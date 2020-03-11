@@ -6,8 +6,9 @@ use core::marker::PhantomData;
 use alloc_collections::btree_map::BTreeMap;
 use interface::{SysResult, SysError};
 
-use crate::mem::MemoryExhausted;
+use crate::fs::vfs;
 use crate::mem::kalloc::GlobalAlloc;
+use crate::mem::MemoryExhausted;
 use crate::mem::page::PageCtx;
 use crate::sync::{Arc, Mutex};
 use crate::task::{TaskId, TaskMap};
@@ -16,7 +17,7 @@ use crate::util::EarlyInit;
 #[derive(Debug)]
 pub enum ObjectKind {
     PageCtx(PageCtx),
-    File(file::File),
+    File(vfs::File),
 }
 
 pub trait ObjectKindT {
@@ -38,7 +39,7 @@ impl ObjectKindT for PageCtx {
     }
 }
 
-impl ObjectKindT for file::File {
+impl ObjectKindT for vfs::File {
     fn wrap(self) -> ObjectKind {
         ObjectKind::File(self)
     }

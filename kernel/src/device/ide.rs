@@ -16,6 +16,7 @@ pub enum Drive {
 #[derive(Debug)]
 pub struct DriveBusy;
 
+#[derive(Debug)]
 pub struct IdeChannel {
     a: AtomicBool,
     b: AtomicBool,
@@ -52,6 +53,7 @@ pub static PRIMARY: IdeChannel = IdeChannel::new(IdeIo {
     control_base: 0x3f6,
 });
 
+#[derive(Debug)]
 pub struct IdeDrive {
     channel: &'static IdeChannel,
     drive: Drive,
@@ -96,6 +98,7 @@ pub enum AtaCommand {
     Identify = 0xec,
 }
 
+#[derive(Debug)]
 struct IdeIo {
     base: u16,
     control_base: u16,

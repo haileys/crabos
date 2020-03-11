@@ -6,6 +6,7 @@ use core::task::{Poll, Context, Waker, RawWaker, RawWakerVTable};
 use alloc_collections::boxed::Box;
 use alloc_collections::btree_map::BTreeMap;
 
+use crate::fs::vfs::Filesystem;
 use crate::interrupt::TrapFrame;
 use crate::mem::kalloc::GlobalAlloc;
 use crate::mem::MemoryExhausted;
@@ -49,6 +50,7 @@ type TaskFuture = Arc<Mutex<Pin<Box<dyn Future<Output = ()>, GlobalAlloc>>>>;
 pub struct Task {
     id: TaskId,
     page_ctx: ObjectRef<PageCtx>,
+    filesystem: Option<Arc<Filesystem>>,
 }
 
 fn alloc_task_id() -> TaskId {
@@ -56,7 +58,7 @@ fn alloc_task_id() -> TaskId {
     TaskId(NEXT_TASK_ID.fetch_add(1, Ordering::SeqCst))
 }
 
-pub fn spawn<F, Fut>(page_ctx: ObjectRef<PageCtx>, f: F) -> Result<TaskId, MemoryExhausted>
+pub fn spawn<F, Fut>(page_ctx: ObjectRef<PageCtx>, filesystem: Option<Arc<Filesystem>>, f: F) -> Result<TaskId, MemoryExhausted>
     where F: FnOnce(TaskEmbryo) -> Fut, Fut: Future<Output = ()> + 'static
 {
     let id = alloc_task_id();
@@ -73,7 +75,7 @@ pub fn spawn<F, Fut>(page_ctx: ObjectRef<PageCtx>, f: F) -> Result<TaskId, Memor
         unsafe { Pin::new_unchecked(future_obj) }
     };
 
-    let task = Task { id, page_ctx };
+    let task = Task { id, page_ctx, filesystem };
 
     // try inserting all task related data:
     let result: Result<_, MemoryExhausted> = (|| {
@@ -112,6 +114,21 @@ pub fn get_page_ctx() -> ObjectRef<PageCtx> {
         .expect("task::get_page_ctx called with no current task")
         .page_ctx
         .clone()
+}
+
+pub fn get_filesystem() -> Option<Arc<Filesystem>> {
+    TASKS.lock()
+        .get(&current())
+        .expect("task::get_filesystem called with no current task")
+        .filesystem
+        .clone()
+}
+
+pub fn set_filesystem(fs: Option<Arc<Filesystem>>) {
+    TASKS.lock()
+        .get_mut(&current())
+        .expect("task::get_filesystem called with no current task")
+        .filesystem = fs;
 }
 
 pub unsafe fn start() -> ! {

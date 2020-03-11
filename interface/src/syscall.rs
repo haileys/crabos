@@ -9,11 +9,12 @@ enum64! {
         7   => Debug,
         8   => SetPageContext,
         9   => GetPageContext,
-        10  => SpawnTask,
+        10  => CreateTask,
         11  => Exit,
         12  => MapPhysicalMemory,
         13  => ReadFile,
         14  => WriteFile,
+        15  => OpenFile,
     }
 }
 
@@ -27,6 +28,8 @@ enum64! {
         0xffff_ffff_0000_0006 => WrongObjectKind,
         0xffff_ffff_0000_0007 => BadHandle,
         0xffff_ffff_0000_0008 => IoError,
+        0xffff_ffff_0000_0009 => NoFile,
+        0xffff_ffff_0000_0010 => InvalidOperation,
     }
 }
 

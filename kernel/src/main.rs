@@ -33,10 +33,14 @@ mod util;
 
 use core::slice;
 
+use futures::future::{Future, FutureExt, OptionFuture};
+
+use fs::vfs::Filesystem;
 use interrupt::TrapFrame;
 use mem::page::{self, PageFlags, PAGE_SIZE};
 use mem::phys;
 use object::ObjectRef;
+use sync::Arc;
 
 extern "C" {
     static mut _end: u8;
@@ -69,10 +73,10 @@ pub extern "C" fn main() -> ! {
         let page_ctx = ObjectRef::new(page::current_ctx())
             .expect("ObjectRef::new");
 
-        task::spawn(page_ctx, |task| async move {
+        task::spawn(page_ctx, None, |task| async move {
             use device::ide::{self, Drive};
             use device::mbr::Mbr;
-            use fs::fat16::{Fat16, DirectoryEntry};
+            use fs::fat16::{Open, Fat16, DirEntry};
 
             let ide = ide::PRIMARY.open(Drive::A)
                 .expect("ide::open");
@@ -98,11 +102,12 @@ pub extern "C" fn main() -> ! {
             // find init:
             let entry = fat.root().entry(b"init.bin")
                 .await
-                .expect("Directory::entry");
+                .expect("entry")
+                .map(|entry| entry.open().expect("open"));
 
-            let init = match entry {
-                Some(DirectoryEntry::File(init)) => init,
-                Some(DirectoryEntry::Dir(_)) => {
+            let mut init = match entry {
+                Some(Open::File(init)) => init,
+                Some(Open::Dir(_)) => {
                     panic!("/init.bin is directory");
                 }
                 None => {
@@ -110,11 +115,13 @@ pub extern "C" fn main() -> ! {
                 }
             };
 
+            let filesystem = Filesystem::new(fat);
+            task::set_filesystem(Some(Arc::new(filesystem)
+                .expect("Arc::new")));
+
             // setup init task
             let mut addr = 0x1000_0000 as *mut u8;
             let mut task = task.setup(TrapFrame::new(addr as u64, 0x0));
-
-            let mut init = init.open();
 
             // read init into userspace
             loop {
@@ -136,7 +143,7 @@ pub extern "C" fn main() -> ! {
             }
 
             // set up initial console object
-            let console = ObjectRef::new(object::file::File::Console)
+            let console = ObjectRef::new(crate::fs::File::Console)
                 .expect("ObjectRef::new");
 
             object::put(task::current(), console.as_dyn()) // implicitly handle 1
