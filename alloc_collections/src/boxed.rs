@@ -37,6 +37,14 @@ impl<T, Allocator: GlobalAlloc> Box<T, Allocator> {
 impl<T, Allocator: GlobalAlloc> Unpin for Box<T, Allocator> { }
 
 impl<T: ?Sized, Allocator: GlobalAlloc> Box<T, Allocator> {
+    #[inline]
+    pub unsafe fn from_raw(raw: *mut T) -> Self {
+        Box {
+            ptr: NonNull::new_unchecked(raw),
+            _phantom: PhantomData,
+        }
+    }
+
     pub fn into_raw(b: Box<T, Allocator>) -> *mut T {
         Box::into_raw_non_null(b).as_ptr()
     }
@@ -49,6 +57,14 @@ impl<T: ?Sized, Allocator: GlobalAlloc> Box<T, Allocator> {
         let mut unique = b.ptr;
         mem::forget(b);
         unsafe { Unique::new_unchecked(unique.as_mut() as *mut T) }
+    }
+}
+
+impl<T, Allocator: GlobalAlloc> Box<T, Allocator> {
+    pub fn into_inner(b: Box<T, Allocator>) -> T {
+        let value = unsafe { ptr::read(b.ptr.as_ptr()) };
+        unsafe { free::<T, Allocator>(b.ptr); }
+        value
     }
 }
 

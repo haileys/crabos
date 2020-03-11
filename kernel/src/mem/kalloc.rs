@@ -6,6 +6,8 @@ use crate::mem::{kvirt, MemoryExhausted};
 use crate::mem::page::PAGE_SIZE;
 use crate::sync::Mutex;
 
+pub type Box<T> = alloc_collections::boxed::Box<T, GlobalAlloc>;
+
 static ALLOCATOR: Mutex<Allocator> = Mutex::new(Allocator::new());
 
 pub fn alloc<T>(value: T) -> Result<NonNull<T>, MemoryExhausted> {

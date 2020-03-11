@@ -1,3 +1,6 @@
+mod atomic_list;
+pub use atomic_list::AtomicList;
+
 mod early_init;
 pub use early_init::EarlyInit;
 
