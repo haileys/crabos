@@ -1,4 +1,4 @@
-# My little hobby OS
+# CrabOS 🦀
 
 ## Setup
 
