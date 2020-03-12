@@ -14,7 +14,7 @@ enum64! {
         12  => MapPhysicalMemory,
         13  => ReadFile,
         14  => WriteFile,
-        15  => OpenFile,
+        15  => OpenPath,
     }
 }
 

@@ -44,7 +44,7 @@ async fn dispatch0(regs: &mut Registers) -> SyscallReturn {
         Syscall::MapPhysicalMemory => map_physical_memory(regs.rdi, regs.rsi, regs.rdx, regs.rcx),
         Syscall::ReadFile => read_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
         Syscall::WriteFile => write_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
-        Syscall::OpenFile => open_file(regs.rdi, regs.rsi, regs.rdx).await,
+        Syscall::OpenPath => open_path(regs.rdi, regs.rsi, regs.rdx).await,
     }
 }
 
@@ -299,17 +299,17 @@ async fn write_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
 }
 
 bitflags! {
-    pub struct OpenFileFlags: u64 {
+    pub struct OpenPathFlags: u64 {
         const WRITE = 0x01;
     }
 }
 
-async fn open_file(path: u64, path_len: u64, flags: u64) -> SyscallReturn {
-    crate::println!("open_file: {:x?}, {:x?}, {:x?}", path, path_len, flags);
+async fn open_path(path: u64, path_len: u64, flags: u64) -> SyscallReturn {
+    crate::println!("open_path: {:x?}, {:x?}, {:x?}", path, path_len, flags);
     let crit = critical::begin();
     let path = user::borrow_slice::<u8>(path, path_len, &crit)?;
 
-    let flags = OpenFileFlags::from_bits(flags)
+    let flags = OpenPathFlags::from_bits(flags)
         .ok_or(SysError::IllegalValue)?;
 
     let fs = task::get_filesystem().ok_or(SysError::NoFile)?;
