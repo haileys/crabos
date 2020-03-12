@@ -175,11 +175,7 @@ impl IdeIo {
         let status_raw = unsafe { self.command_status().read() };
 
         // all bits are defined in AtaStatus, so from_bits_truncate is fine:
-        let status = AtaStatus::from_bits_truncate(status_raw);
-
-        crate::println!("ata status: {:x?} => {:x?}", status_raw, status);
-
-        status
+        AtaStatus::from_bits_truncate(status_raw)
     }
 
     fn error(&self) -> AtaError {
@@ -286,8 +282,6 @@ impl IdeDrive {
     }
 
     pub async fn read_sectors(&self, lba: usize, buffs: &mut [&mut Sector]) -> Result<(), AtaError> {
-        crate::println!("read_sectors({:x})", lba);
-
         if lba > 0x00fffffe {
             panic!("cannot read lba > 0x00ffffff currently");
         }
@@ -304,7 +298,6 @@ impl IdeDrive {
         unsafe {
             io.error_features().write(0);
             io.seccount0().write(buffs.len() as u8);
-            crate::println!("  lba: {:x?}", lba);
             io.lba0().write(lba[0]);
             io.lba1().write(lba[1]);
             io.lba2().write(lba[2]);

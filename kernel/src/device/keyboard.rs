@@ -16,8 +16,6 @@ pub unsafe fn init() {
 }
 
 pub async fn read_scancode() -> Scancode {
-    crate::println!("in read_scancode");
-
     // TODO - send task to sleep while waiting for interrupt
     future::poll_fn(|_ctx| {
         let mut buff = BUFF.lock();

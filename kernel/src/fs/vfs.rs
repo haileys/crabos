@@ -101,8 +101,6 @@ impl File {
                     return Ok(0);
                 }
 
-                crate::println!("before read_scancode");
-
                 let scancode = keyboard::read_scancode().await;
                 buf[0] = scancode;
                 Ok(1)

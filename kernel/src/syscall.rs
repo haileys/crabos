@@ -93,8 +93,6 @@ fn alloc_page(virtual_addr: u64, page_count: u64, flags: u64) -> SyscallReturn {
         // Safety: we validated that this will not violate kernel memory safety
         // We do not guarantee user space memory safety
         unsafe {
-            println!("mapping {:?} -> {:?}", addr, phys);
-
             page::map(phys, addr, flags)
                 .map_err(|e| match e {
                     MapError::AlreadyMapped => {

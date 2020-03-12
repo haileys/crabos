@@ -48,8 +48,6 @@ impl PageAllocator {
     }
 
     pub fn alloc(&self) -> Result<NonNull<u8>, MemoryExhausted> {
-        crate::println!("PageAllocator::alloc!");
-
         {
             let mut inner = self.inner.lock();
 
