@@ -181,7 +181,7 @@ pub unsafe extern "C" fn write_file(file: u64, buff: *const u8, buff_len: u64) -
     syscall3(Syscall::WriteFile, file, buff as u64, buff_len)
 }
 
-#[export_name = "syscall_open_file"]
-pub unsafe extern "C" fn open_file(path: *const u8, path_len: u64, flags: u64) -> SyscallResult {
-    syscall3(Syscall::OpenFile, path as u64, path_len, flags)
+#[export_name = "syscall_open_path"]
+pub unsafe extern "C" fn open_path(path: *const u8, path_len: u64, flags: u64) -> SyscallResult {
+    syscall3(Syscall::OpenPath, path as u64, path_len, flags)
 }

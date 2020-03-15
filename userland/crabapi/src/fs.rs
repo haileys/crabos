@@ -8,7 +8,7 @@ pub struct File(Handle);
 impl File {
     pub fn open(path: &[u8]) -> Result<File> {
         let ret = unsafe {
-            syscall::open_file(path.as_ptr(), path.len() as u64, 0)
+            syscall::open_path(path.as_ptr(), path.len() as u64, 0)
         };
 
         Result::from(ret).map(File)
