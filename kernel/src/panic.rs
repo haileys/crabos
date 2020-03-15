@@ -57,7 +57,5 @@ pub unsafe extern "C" fn c_panic(msg: *const u8) -> ! {
     let bytes = slice::from_raw_parts(msg, msg_len);
     let msg = str::from_utf8_unchecked(bytes);
 
-    let loc = Location::internal_constructor("(none)", 0, 0);
-
-    panicking::panic_fmt(format_args!("{}", msg), &loc);
+    panicking::panic_fmt(format_args!("{}", msg));
 }
