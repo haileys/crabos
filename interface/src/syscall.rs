@@ -12,9 +12,9 @@ enum64! {
         10  => CreateTask,
         11  => Exit,
         12  => MapPhysicalMemory,
-        13  => ReadFile,
-        14  => WriteFile,
-        15  => OpenPath,
+        13  => ReadStream,
+        14  => WriteStream,
+        15  => OpenFile,
     }
 }
 

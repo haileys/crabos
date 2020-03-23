@@ -36,7 +36,7 @@ pub struct Console(ManuallyDrop<Handle>);
 impl Read for Console {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let result = unsafe {
-            syscall::read_file(self.0.as_raw(), buf.as_mut_ptr(), buf.len() as u64)
+            syscall::read_stream(self.0.as_raw(), buf.as_mut_ptr(), buf.len() as u64)
         };
 
         result.into()
@@ -46,7 +46,7 @@ impl Read for Console {
 impl Write for Console {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let result = unsafe {
-            syscall::write_file(self.0.as_raw(), buf.as_ptr(), buf.len() as u64)
+            syscall::write_stream(self.0.as_raw(), buf.as_ptr(), buf.len() as u64)
         };
 
         result.into()

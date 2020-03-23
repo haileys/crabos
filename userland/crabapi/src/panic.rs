@@ -7,7 +7,7 @@ use crate::syscall;
 const CONSOLE_HANDLE: u64 = 1;
 
 unsafe fn write_bytes(buf: &[u8]) {
-    syscall::write_file(CONSOLE_HANDLE, buf.as_ptr(), buf.len() as u64);
+    syscall::write_stream(CONSOLE_HANDLE, buf.as_ptr(), buf.len() as u64);
 }
 
 #[panic_handler]

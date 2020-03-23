@@ -42,9 +42,9 @@ async fn dispatch0(regs: &mut Registers) -> SyscallReturn {
         Syscall::CreateTask => create_task(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx),
         Syscall::Exit => exit(UserArg::from_reg(regs.rdi)?),
         Syscall::MapPhysicalMemory => map_physical_memory(regs.rdi, regs.rsi, regs.rdx, regs.rcx),
-        Syscall::ReadFile => read_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
-        Syscall::WriteFile => write_file(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
-        Syscall::OpenPath => open_path(regs.rdi, regs.rsi, regs.rdx).await,
+        Syscall::ReadStream => read_stream(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
+        Syscall::WriteStream => write_stream(UserArg::from_reg(regs.rdi)?, regs.rsi, regs.rdx).await,
+        Syscall::OpenFile => open_file(regs.rdi, regs.rsi, regs.rdx).await,
     }
 }
 
@@ -268,7 +268,7 @@ fn exit(_status: u64) -> SyscallReturn {
     panic!("process exited!")
 }
 
-async fn read_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
+async fn read_stream(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
     let file = object::get(task::current(), file)
         .ok_or(SysError::BadHandle)?
         .downcast::<File>()?;
@@ -282,7 +282,7 @@ async fn read_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
         .map(|sz| sz as u64)
 }
 
-async fn write_file(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
+async fn write_stream(file: Handle, buf: u64, nbyte: u64) -> SyscallReturn {
     let file = object::get(task::current(), file)
         .ok_or(SysError::BadHandle)?
         .downcast::<File>()?;
@@ -302,7 +302,7 @@ bitflags! {
     }
 }
 
-async fn open_path(path: u64, path_len: u64, flags: u64) -> SyscallReturn {
+async fn open_file(path: u64, path_len: u64, flags: u64) -> SyscallReturn {
     crate::println!("open_path: {:x?}, {:x?}, {:x?}", path, path_len, flags);
     let crit = critical::begin();
     let path = user::borrow_slice::<u8>(path, path_len, &crit)?;
