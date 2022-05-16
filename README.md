@@ -1,5 +1,7 @@
 # CrabOS 🦀
 
+![](https://user-images.githubusercontent.com/179065/168691073-39f24002-cd6f-4090-8852-df5eb1ad46d2.jpg)
+
 ## Setup
 
 You need a few things to build this:
